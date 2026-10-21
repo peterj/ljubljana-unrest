@@ -1,7 +1,4 @@
-import { Mission, MODE, fmt } from '../mission.js';
-import { Convoy } from '../convoy.js';
-import { ORANGE, RED, WHITE } from './shared/colors.js';
-import { cars, squads } from './shared/spawn.js';
+import { Mission, MODE, fmt, Convoy, ORANGE, RED, WHITE, cars, squads } from '../sdk/index.js';
 
 // ======================================================================================= CONVOY
 export class ConvoyMission extends Mission {

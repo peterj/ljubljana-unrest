@@ -1,8 +1,7 @@
-import { Mission, FACTION, MODE, STAT, ZONE, fmt, rand, pick } from '../mission.js';
-import { ORANGE } from './shared/colors.js';
-import { drawPending } from './shared/draw.js';
-import { near } from './shared/geometry.js';
-import { squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, STAT, ZONE, fmt, rand, pick,
+	ORANGE, drawPending, near, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= RALLY (protest side)
 export class RallyMission extends Mission {

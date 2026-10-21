@@ -1,5 +1,3 @@
-
-
 export function ringDist( r, x, y ) {
 
 	let best = Infinity;

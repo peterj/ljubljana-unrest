@@ -1,8 +1,7 @@
-import { Mission, FACTION, MODE, ROLE, fmt, pick } from '../mission.js';
-import { ORANGE, RED } from './shared/colors.js';
-import { drawPending } from './shared/draw.js';
-import { along, near, polyline, project } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, ROLE, fmt, pick,
+	ORANGE, RED, drawPending, along, near, polyline, project, cars, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= PRIDE
 // Police side: get the Pride march from Metelkova along Masarykova and down Slovenska to Kongresni trg. A peaceful,

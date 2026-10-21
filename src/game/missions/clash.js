@@ -1,7 +1,4 @@
-import { Mission, FACTION, MODE, STAT, fmt } from '../mission.js';
-import { LIME, ORANGE } from './shared/colors.js';
-import { near } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import { Mission, FACTION, MODE, STAT, fmt, LIME, ORANGE, near, cars, squads } from '../sdk/index.js';
 
 // ======================================================================================= CLASH
 // ======================================================================================= CLASH

@@ -1,7 +1,7 @@
-import { Mission, FACTION, MODE, ZONE, fmt, pick } from '../mission.js';
-import { ORANGE, RED, WHITE } from './shared/colors.js';
-import { inPoly, near, ringDist } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, ZONE, fmt, pick,
+	ORANGE, RED, WHITE, inPoly, near, ringDist, cars, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= DEFEND
 const DEFEND_OUTRAGE = { c: [ 45, 0.2, 'Baton charge' ], k: [ 50, 0.25, 'Kettle' ], g: [ 60, 0.25, 'Tear gas' ], w: [ 50, 0.2, 'Water cannon' ], a: [ 35, 0.12, 'Arrests' ], x: [ 35, 0.12, 'Snatch squad' ], s: [ 40, 0.15, 'Shield push' ] };

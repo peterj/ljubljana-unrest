@@ -1,8 +1,7 @@
-import { Mission, FACTION, MODE, ROLE, STAT, fmt, rand } from '../mission.js';
-import { WATER_RANGE } from '../../sim/world.js';
-import { RED, WHITE } from './shared/colors.js';
-import { along, near, polyline, project } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, ROLE, STAT, fmt, rand, WATER_RANGE,
+	RED, WHITE, along, near, polyline, project, cars, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= RING ROAD
 // After ljubljanainfo.com, 29 September 2021: ~2,000 at a rally on Trg republike against the COVID

@@ -1,4 +1,4 @@
-import { FACTION } from '../../mission.js';
+import { FACTION } from '../mission.js';
 
 // shared: spawn a numbered set of police squads at positions
 export async function squads( world, list, n = 24 ) {

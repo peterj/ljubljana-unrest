@@ -1,7 +1,7 @@
-import { Mission, FACTION, MODE, ROLE, STAT, ZONE, fmt, rand, pick } from '../mission.js';
-import { BLUE, ORANGE, RED, WHITE } from './shared/colors.js';
-import { near } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, ROLE, STAT, ZONE, fmt, rand, pick,
+	BLUE, ORANGE, RED, WHITE, near, cars, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= SIT-IN
 // The sit-in: 160 readers sit in a grid in the middle of Trg republike, a ring of supporters stands around them.

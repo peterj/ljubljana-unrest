@@ -1,8 +1,7 @@
-import { Mission, FACTION, MODE, ROLE, STAT, ZONE, fmt, rand, pick } from '../mission.js';
-import { ORANGE, RED, WHITE } from './shared/colors.js';
-import { drawPending } from './shared/draw.js';
-import { inPoly, near } from './shared/geometry.js';
-import { squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, ROLE, STAT, ZONE, fmt, rand, pick,
+	ORANGE, RED, WHITE, drawPending, inPoly, near, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= COURT
 // Protest side, capture the flag: carry the banner up Miklošičeva to the steps of the Palace of Justice

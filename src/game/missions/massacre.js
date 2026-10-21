@@ -1,6 +1,4 @@
-import { Mission, FACTION, MODE, STAT, ZONE, fmt, rand, pick } from '../mission.js';
-import { inPoly } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import { Mission, FACTION, MODE, STAT, ZONE, fmt, rand, pick, inPoly, cars, squads } from '../sdk/index.js';
 
 // ======================================================================================= THE MASSACRE
 // Fictional. A peaceful anti-war demonstration in front of the US Embassy on Prešernova; an AntiFa squad shoves

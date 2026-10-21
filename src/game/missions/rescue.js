@@ -1,8 +1,7 @@
-import { Mission, FACTION, MODE, ROLE, fmt, rand } from '../mission.js';
-import { ORANGE, RED } from './shared/colors.js';
-import { drawPending } from './shared/draw.js';
-import { along, near, polyline, project } from './shared/geometry.js';
-import { squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, ROLE, fmt, rand,
+	ORANGE, RED, drawPending, along, near, polyline, project, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= RESCUE
 // Protest side: a dissident Speaker addresses a big crowd from a stand on Kongresni trg, and the police mean to take

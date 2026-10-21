@@ -1,7 +1,7 @@
-import { Mission, FACTION, MODE, fmt, rand, pick } from '../mission.js';
-import { ORANGE, RED } from './shared/colors.js';
-import { inPoly, near, ringDist } from './shared/geometry.js';
-import { cars, squads } from './shared/spawn.js';
+import {
+	Mission, FACTION, MODE, fmt, rand, pick,
+	ORANGE, RED, inPoly, near, ringDist, cars, squads,
+} from '../sdk/index.js';
 
 // ======================================================================================= BLACKBLOC
 // A peaceful rally with a BlackBloc inside it. The cells look like everyone else until they mask up for
