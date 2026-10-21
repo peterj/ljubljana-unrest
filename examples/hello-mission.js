@@ -1,6 +1,7 @@
 // A minimal mission plugin. Serve this file and open the game with ?plugin=<its URL>&m=hello-square
 // A plugin is an ES module that imports nothing: it declares the SDK version it targets and default-exports a function
-// that receives the SDK and returns a mission class (or an array of them).
+// that receives the SDK and returns a mission class (or an array of them). An import of the game's own files would work in
+// dev but not in a build, so take everything from the SDK argument.
 export const sdkVersion = 1;
 
 export default ( { Mission, MODE, ORANGE, fmt, squads } ) => class HelloSquare extends Mission {
