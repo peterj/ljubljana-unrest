@@ -6,3 +6,4 @@ export * from './colors.js';
 export * from './draw.js';
 export * from './geometry.js';
 export * from './spawn.js';
+export * from './templates/defend.js';
