@@ -83,7 +83,7 @@ export class ConvoyMission extends Mission {
 
 	commands() {
 
-		return [ ...this.policeCommands(), { key: 'v', label: 'Depart now', run: () => this.depart(), hide: () => this.convoy.moving } ];
+		return [ ...this.policeCommands(), { key: 'v', label: 'Depart now', desc: 'send the convoy off before its scheduled departure', run: () => this.depart(), hide: () => this.convoy.moving } ];
 
 	}
 

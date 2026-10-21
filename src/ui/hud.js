@@ -18,7 +18,6 @@ const DESC = {
 		w: 'water cannon truck selected: shows its reach; hold the left button to aim, release to spray for 10 s (limited). Right-click drives the truck, Esc puts the cannon away',
 		f: 'fresh squad from the nearest police station, sent to the cursor', o: 'firearms — last resort, confirm dialog, caps the mission at 1★',
 		b: 'loudspeaker order over the crowd at the cursor: calmer groups go home, the hard core gets angrier. A group hears it once',
-		v: 'send the convoy off before its scheduled departure',
 		u: 'parked patrol car: crew gets out beside it, or nearby crew get back in (cars also pick up their crew when they drive off)' },
 	protest: { rmb: 'march the selected groups there', h: 'stop and hold where they stand', e: 'raise agitation and resolve. Again: push the police line (costs sympathy). Three times: storm it for 40 s (costs a lot)',
 		q: 'one level calmer: from storming to pushing, from pushing to marching, calms them down', d: 'scatter the group',

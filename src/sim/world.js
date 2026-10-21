@@ -22,7 +22,7 @@ export class World {
 		this.gasClouds = []; // { x, y, r, t, ttl }
 		this.jets = []; // water cannon: { x, y, angle, range, t, ttl }
 		this.wind = [ 0, 0 ]; // m/s, gas clouds drift with it
-		this.convoyVehicles = []; // set by the convoy mission; these provoke protesters
+		this.convoyVehicles = []; // a mission's kinematic vehicles (the VIP convoy): moving walls that provoke protesters
 		this.patrols = null; // Patrols (police cars), attached by the game
 		this.onFx = null; // ( kind, x, y, from ) for sound: charge, kettle, gas, water — by the player or AI police
 		this.pushEvents = []; // shield pushes that ended: { type: 'done' | 'stalled', at, label } (drained by Game.onIntel)

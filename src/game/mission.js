@@ -17,6 +17,9 @@ export class Mission {
 	static brief = '';
 	static goals = [];
 	static tips = [];
+	static city = null; // map folder under public/data/ (null: the default city)
+	static flashing = false; // uses strobe effects: the top bar shows their on / off button
+	static prepare( city ) {} // may patch the map data before the simulation is built; each mission is a fresh page load
 
 	constructor( game ) {
 

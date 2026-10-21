@@ -494,6 +494,7 @@ export class BlackBloc extends Mission {
 
 			const i = pick( targets ), to = [ I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] ];
 			this.throws.push( { from: [ cx, cy ], to, t: this.t, flare: v.flare } );
+			this.game.sound?.projectile( [ cx, cy ], to, v.flare );
 			if ( Math.random() < v.hit ) this.crowd.setFaction( i, 21 ); // officer hurt, by others
 			// officers under a barrage get jumpy; the crowd the stones came from gets excited
 			for ( let j = 0; j < this.crowd.count; j ++ ) if ( I.st[ j * 4 ] === FACTION.POLICE && Math.hypot( I.pos[ j * 2 ] - to[ 0 ], I.pos[ j * 2 + 1 ] - to[ 1 ] ) < 6 ) this.crowd.nudge( j, v.stress, 0 );

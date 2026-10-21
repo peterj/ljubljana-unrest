@@ -33,7 +33,6 @@ export class Sound {
 		this.radioBusyUntil = 0;
 		this.last = {}; // throttles: key → Tone time
 		this.loops = new Map(); // owner → positional loop handle (cars, water jets, fires)
-		this.seen = new WeakSet(); // throws already heard
 		this.amb = { calm: 0, roar: 0, fight: 0, pan: 0 };
 		this.tension = 0;
 		this.nextChat = 20;
@@ -371,6 +370,19 @@ export class Sound {
 
 	}
 
+	// a stone or a flare thrown from `from` to `to`
+	projectile( from, to, flare = false ) {
+
+		if ( ! this.on || ! this.throttle( 'throw', 0.12 ) ) return;
+		if ( flare ) { this.play( 'gas_launch', from, { vol: - 10, rate: 1.4 } ); return; }
+		// the stone lands half a second later: on a shield (clang) or the cobbles (knock)
+		const P = this.place( ...to ), when = Tone.now() + 0.5 + Math.random() * 0.2;
+		this.hitPan.pan.setValueAtTime( P.pan, when );
+		if ( Math.random() < 0.5 ) this.clang.triggerAttackRelease( 'C4', 0.1, when, P.gain );
+		else this.knock.triggerAttackRelease( 'G2', 0.1, when, P.gain );
+
+	}
+
 	// the crowd breaks: screams and a roar where the shooting starts
 	stampede( at ) {
 
@@ -445,21 +457,6 @@ export class Sound {
 		}
 
 		for ( const [ owner ] of this.loops ) if ( owner.pos ) this.move( owner, owner.pos );
-
-		// stones and flares in flight
-		for ( const s of m.throws ?? [] ) {
-
-			if ( this.seen.has( s ) ) continue;
-			this.seen.add( s );
-			if ( ! this.throttle( 'throw', 0.12 ) ) continue;
-			if ( s.flare ) { this.play( 'gas_launch', s.from, { vol: - 10, rate: 1.4 } ); continue; }
-			// the stone lands half a second later: on a shield (clang) or the cobbles (knock)
-			const P = this.place( ...s.to ), when = Tone.now() + 0.5 + Math.random() * 0.2;
-			this.hitPan.pan.setValueAtTime( P.pan, when );
-			if ( Math.random() < 0.5 ) this.clang.triggerAttackRelease( 'C4', 0.1, when, P.gain );
-			else this.knock.triggerAttackRelease( 'G2', 0.1, when, P.gain );
-
-		}
 
 		// police radio traffic in the background, busier as things escalate
 		this.nextChat -= dt;
