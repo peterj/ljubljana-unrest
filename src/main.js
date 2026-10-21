@@ -9,6 +9,7 @@ import { Crowd, FACTION } from './sim/crowd.js';
 import { World } from './sim/world.js';
 import { BUILTIN } from './game/missions/index.js';
 import { MISSIONS, registerMission, findMission } from './game/registry.js';
+import { loadPlugins } from './game/plugins.js';
 import { Patrols } from './game/patrols.js';
 import { Labels } from './labels.js';
 import { Hud } from './ui/hud.js';
@@ -49,7 +50,9 @@ class Game {
 		if ( ! this.renderer.backend.isWebGPUBackend ) return fail( 'WebGPU adapter unavailable — the crowd simulation needs compute shaders.' );
 
 		// a mission may play on its own map (public/data/<city>/, see tools/build_city.py AREAS)
-		const id = new URLSearchParams( location.search ).get( 'm' );
+		const params = new URLSearchParams( location.search ), id = params.get( 'm' );
+		// plugins from other sites run code in this page: only in dev, or in a build made with VITE_REMOTE_PLUGINS=1 (and the player confirms)
+		this.plugins = await loadPlugins( params.getAll( 'plugin' ), { allowRemote: import.meta.env.DEV || import.meta.env.VITE_REMOTE_PLUGINS === '1' } );
 		const M = findMission( id );
 		this.city = await loadCity( M?.city ? `./data/${M.city}/` : './data/' );
 		boot.textContent = 'building city…';
@@ -93,7 +96,7 @@ class Game {
 		this._input( canvas );
 
 		if ( M ) await this.load( M );
-		else this.hud.menu( MISSIONS, ( q ) => this.go( q.id ) );
+		else this.hud.menu( MISSIONS, ( q ) => this.go( q.id ), this.plugins.failed );
 
 		boot.classList.add( 'hide' );
 		this.renderer.setAnimationLoop( () => this.frame() );
@@ -101,10 +104,18 @@ class Game {
 
 	}
 
-	// a mission is a fresh page load: simplest way to get pristine GPU state
-	go( id ) { location.search = '?m=' + id; }
+	// a mission is a fresh page load: simplest way to get pristine GPU state (the plugins come along, they are loaded again)
+	go( id ) { location.search = this.query( { m: id } ); }
 
-	toMenu() { location.search = ''; }
+	toMenu() { location.search = this.query(); }
+
+	query( extra = {} ) {
+
+		const p = new URLSearchParams( extra );
+		for ( const u of new URLSearchParams( location.search ).getAll( 'plugin' ) ) p.append( 'plugin', u );
+		return p.toString();
+
+	}
 
 	async load( M ) {
 

@@ -229,12 +229,13 @@ export class Hud {
 
 	}
 
-	menu( missions, onPick ) {
+	menu( missions, onPick, notes = [] ) {
 
 		const best = bestStars();
 		const el = this.modal( `<div class="card">
 			<h1>Ljubljana <span>// Unrest</span></h1>
 			<div class="sub">Crowd strategy in the streets of Ljubljana. Pick a mission.</div>
+			${notes.map( ( n ) => `<p class="note">Plugin not loaded: ${esc( n )}</p>` ).join( '' )}
 			<div class="missions">${missions.map( ( M, k ) => `
 				<button class="mcard" data-k="${k}">
 					<div class="row"><span class="t">${esc( M.title )}</span><span class="side ${M.side}">${M.side}</span></div>

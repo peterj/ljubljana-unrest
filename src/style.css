@@ -130,6 +130,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .card h1 { margin: 0; font-size: 26px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--white); }
 .card h1 span { color: var(--orange); }
 .card .sub { color: var(--dim); margin: 4px 0 16px; font-size: 13px; }
+.card .note { color: var(--amber); font-size: 12px; margin: 0 0 8px; overflow-wrap: anywhere; }
 .card .credit { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; letter-spacing: 0.06em; color: var(--dim); text-align: right; }
 .card .credit a { color: var(--orange); text-decoration: none; }
 .card .credit a:hover { text-decoration: underline; }
