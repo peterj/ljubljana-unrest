@@ -7,7 +7,7 @@ import { PAL } from './palette.js';
 import { FlowFields } from './sim/flowfields.js';
 import { Crowd, FACTION } from './sim/crowd.js';
 import { World } from './sim/world.js';
-import { MISSIONS } from './game/missions.js';
+import { MISSIONS } from './game/missions/index.js';
 import { Patrols } from './game/patrols.js';
 import { Labels } from './labels.js';
 import { Hud } from './ui/hud.js';

@@ -1,5 +1,5 @@
 // Mission base: timeline, objectives, public opinion, resources, events and the order set shared
-// by every mission on the same side. Concrete missions live in missions.js.
+// by every mission on the same side. Concrete missions live in missions/.
 import { FACTION, MODE, ROLE, STAT, ZONE } from '../sim/crowd.js';
 import { World, pick, rand, WATER_JET } from '../sim/world.js';
 import { CannonAI } from './cannon.js';
