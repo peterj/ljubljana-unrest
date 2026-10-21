@@ -12,4 +12,4 @@ import { CourtMission } from './court.js';
 import { PrideMission } from './pride.js';
 import { RescueMission } from './rescue.js';
 
-export const MISSIONS = [ ConvoyMission, DefendAssembly, DefendVlada, RallyMission, ClashMission, SitInMission, MassacreMission, ResnicaRun, BlackBloc, CourtMission, PrideMission, RescueMission ];
+export const BUILTIN = [ ConvoyMission, DefendAssembly, DefendVlada, RallyMission, ClashMission, SitInMission, MassacreMission, ResnicaRun, BlackBloc, CourtMission, PrideMission, RescueMission ];

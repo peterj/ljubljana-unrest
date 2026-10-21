@@ -7,7 +7,8 @@ import { PAL } from './palette.js';
 import { FlowFields } from './sim/flowfields.js';
 import { Crowd, FACTION } from './sim/crowd.js';
 import { World } from './sim/world.js';
-import { MISSIONS } from './game/missions/index.js';
+import { BUILTIN } from './game/missions/index.js';
+import { MISSIONS, registerMission, findMission } from './game/registry.js';
 import { Patrols } from './game/patrols.js';
 import { Labels } from './labels.js';
 import { Hud } from './ui/hud.js';
@@ -15,6 +16,8 @@ import { Overlay } from './ui/overlay.js';
 import { Sound } from './audio/sound.js';
 
 if ( location.search.includes( 'debug' ) ) THREE.Node.captureStackTrace = true;
+
+BUILTIN.forEach( registerMission );
 
 const DT = 1 / 60;
 const SPEEDS = [ 1, 2, 3 ];
@@ -47,7 +50,7 @@ class Game {
 
 		// a mission may play on its own map (public/data/<city>/, see tools/build_city.py AREAS)
 		const id = new URLSearchParams( location.search ).get( 'm' );
-		const M = MISSIONS.find( ( q ) => q.id === id );
+		const M = findMission( id );
 		this.city = await loadCity( M?.city ? `./data/${M.city}/` : './data/' );
 		boot.textContent = 'building city…';
 		this.scene = new THREE.Scene();
