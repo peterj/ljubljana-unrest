@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Ljubljana Unrest — a crowd strategy game</title>
+	<meta name="description" content="Command the police or lead the protest. A real-time crowd strategy game on the real streets of central Ljubljana: twelve missions, thousands of people, public opinion watching every move.">
+	<meta name="theme-color" content="#05070b">
+
+	<!-- Open Graph / Twitter. og:image is relative here; `SITE_URL=https://… npm run build` makes it absolute and adds og:url (vite.config.js) -->
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="Ljubljana Unrest">
+	<meta property="og:locale" content="en_GB">
+	<meta property="og:title" content="Ljubljana Unrest — command the police, or lead the protest">
+	<meta property="og:description" content="A real-time crowd strategy game on the real streets of central Ljubljana. Twelve missions, thousands of people, public opinion watching every move. Runs in the browser (WebGPU).">
+	<!--og:url-->
+	<meta property="og:image" content="./og-image.png">
+	<meta property="og:image:type" content="image/png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Map of central Ljubljana at night: an orange march on Prešernov trg, a green counter-protest on Kongresni trg, blue police cordons between them.">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Ljubljana Unrest — command the police, or lead the protest">
+	<meta name="twitter:description" content="A real-time crowd strategy game on the real streets of central Ljubljana. Twelve missions, thousands of people, public opinion watching every move.">
+	<meta name="twitter:image" content="./og-image.png">
+	<meta name="twitter:image:alt" content="Map of central Ljubljana at night: an orange march on Prešernov trg, a green counter-protest on Kongresni trg, blue police cordons between them.">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+	<canvas id="view"></canvas>
+	<canvas id="overlay"></canvas>
+	<div id="labels"></div>
+
+	<div id="hud" hidden>
+		<header id="topbar">
+			<div class="mtitle"><span id="mTitle"></span><small id="mSub"></small></div>
+			<div id="phase"></div>
+			<div class="time">
+				<span id="clock">0:00</span>
+				<button id="pauseBtn" title="Space">❚❚</button>
+				<button id="speedBtn" title="+ / −">1×</button>
+				<button id="soundBtn" title="Sound on / off (N)">♪</button>
+				<button id="strobeBtn" title="Flashing effects on / off" hidden>☀</button>
+				<button id="menuBtn" title="Missions">☰</button>
+			</div>
+		</header>
+
+		<section id="objectives" class="panel"><h2>Objectives</h2><ol id="objList"></ol></section>
+
+		<section id="opinion" class="panel">
+			<div class="row"><span id="opLabel">Public opinion</span><b id="opValue">60</b></div>
+			<div class="meter"><i id="opBar"></i></div>
+			<div id="opDelta"></div>
+			<div class="row esc"><span>Escalation</span><span id="escBar"></span></div>
+		</section>
+
+		<section id="commands" class="panel">
+			<h2 id="selTitle">No units selected</h2>
+			<p id="selInfo" class="hint">Click a unit to select it. Shift adds; shift-drag selects a box.</p>
+			<div id="cmdInfo" hidden></div>
+			<div id="cmdList"></div>
+		</section>
+
+		<div id="feed"></div>
+	</div>
+
+	<div id="modal" hidden></div>
+	<div id="boot">loading city…</div>
+	<script type="module" src="./src/main.js"></script>
+</body>
+</html>
