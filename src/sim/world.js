@@ -1,6 +1,7 @@
 // World: everything between the GPU crowd and a mission — spawning, groups, squad orders,
 // formations, tear gas, and the periodic "intel" readback (group centroids, leaders, CCTV).
 import { FACTION, MODE, ROLE } from './crowd.js';
+import { Intel } from './intel.js';
 
 export const rand = ( a, b ) => a + Math.random() * ( b - a );
 export const pick = ( arr ) => arr[ Math.floor( Math.random() * arr.length ) ];
@@ -788,7 +789,7 @@ export class World {
 
 		}
 
-		this.intel = { pos, st, t: performance.now() };
+		this.intel = new Intel( pos, st );
 		return this.intel;
 
 	}
