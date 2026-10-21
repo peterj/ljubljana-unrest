@@ -71,6 +71,7 @@ Extend `Mission` and use its lifecycle methods:
 - `objectives()`, `phase()`, and `score(win)` provide the HUD and result screen.
 - `commands()` returns the standard orders for the mission side; override it to add or wrap orders.
 - `draw(overlay)` draws mission-specific map overlays.
+- `onAction(action)` (optional) receives what the player does: `pan`, `zoom`, `select`, `deselect`, `move`, `line`, `drive`, `order` (with `key`), `pause`, `speed` and `sound`. The tutorial in [`src/game/missions/tutorial.js`](../src/game/missions/tutorial.js) uses it to wait for each step.
 
 The base class also provides helpers such as `event()`, `after()`, `bystanders()`, and `nudgeOpinion()`. The SDK includes `Mission`, simulation enums and helpers, colors, geometry and spawn helpers, `Convoy`, and the `DefendMission` template. See the full list in [`src/game/sdk/index.js`](../src/game/sdk/index.js).
 

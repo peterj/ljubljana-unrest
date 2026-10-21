@@ -193,10 +193,31 @@ export class Hud {
 			b.querySelector( '.res' ).textContent = r ? ( r.ready > 0 ? fmt( r.ready ) : r.max > 20 ? '' : `${r.left}/${r.max}` ) : '';
 			b.classList.toggle( 'off', ! g.hasSelFor( c ) || !! ( r && ( r.left <= 0 || r.ready > 0 ) ) || ! c.run );
 			b.classList.toggle( 'armed', g.armed === c.key || ( c.key === 'l' && !! g.drawing ) );
+			b.classList.toggle( 'coach', !! m.coachKeys?.includes( c.key ) );
 
 		}
 
 		this.cmdInfo( m );
+
+	}
+
+	// the tutorial's instruction card: { chapter, text (<b>/<i> allowed), step, total, next?, onNext, onSkip?, spot? (a HUD element id to point at) }
+	coach( c ) {
+
+		const el = $( 'coach' );
+		document.querySelectorAll( '.coach-spot' ).forEach( ( q ) => q.classList.remove( 'coach-spot' ) );
+		el.hidden = ! c;
+		if ( ! c ) return;
+		if ( c.spot ) $( c.spot )?.classList.add( 'coach-spot' );
+		el.innerHTML = `<div class="co-head"><h2>${esc( c.chapter )}</h2><span>${c.step} / ${c.total}</span></div>
+			<p>${richText( c.text )}</p>
+			<div class="co-go">${c.onSkip ? '<button class="co-skip">Skip</button>' : ''}${c.next ? '<button class="co-next primary">Continue</button>' : ''}</div>`;
+		// blur: a focused button would also take the next Space / Enter meant for the game
+		el.querySelector( '.co-skip' )?.addEventListener( 'click', ( e ) => { e.currentTarget.blur(); c.onSkip(); } );
+		el.querySelector( '.co-next' )?.addEventListener( 'click', ( e ) => { e.currentTarget.blur(); c.onNext(); } );
+		el.classList.remove( 'fresh' );
+		void el.offsetWidth;
+		el.classList.add( 'fresh' );
 
 	}
 
@@ -238,7 +259,8 @@ export class Hud {
 			${notes.map( ( n ) => `<p class="note">Plugin not loaded: ${esc( n )}</p>` ).join( '' )}
 			<div class="missions">${missions.map( ( M, k ) => `
 				<button class="mcard" data-k="${k}">
-					<div class="row"><span class="t">${esc( M.title )}</span><span class="side ${M.side}">${M.side}</span></div>
+					<div class="row"><span class="t">${esc( M.title )}</span>${M.tutorial
+		? `<span class="side tutorial">${best[ M.id ] ? 'tutorial' : 'start here'}</span>` : `<span class="side ${M.side}">${M.side}</span>`}</div>
 					<div class="s">${esc( M.subtitle )}</div>
 					<div class="stars">${starStr( best[ M.id ] ?? 0 )}</div>
 				</button>` ).join( '' )}

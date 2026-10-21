@@ -49,7 +49,8 @@ export class Mission {
 	get side() { return this.constructor.side; }
 
 	// ---------------------------------------------------------------- lifecycle (overridden)
-	// optional, read by the engine: start(), focus, zoom, wanderPlaces, onLeaderArrested( group )
+	// optional, read by the engine: start(), focus, zoom, wanderPlaces, onLeaderArrested( group ),
+	// onAction( { type: 'pan' | 'zoom' | 'select' | 'deselect' | 'move' | 'line' | 'drive' | 'order' | 'pause' | 'speed' | 'sound', … } )
 	async setup() {}
 	tick() {} // mission logic, called every frame with this.stats available
 	commands() { return this.side === 'police' ? this.policeCommands() : this.protestCommands(); } // the orders panel; add or wrap
