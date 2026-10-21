@@ -4,6 +4,23 @@ import { fmt } from '../game/mission.js';
 
 const $ = ( id ) => document.getElementById( id );
 const esc = ( s ) => String( s ).replace( /[&<>"]/g, ( c ) => ( { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ c ] ) );
+
+// mission text is data, not markup: everything is escaped except <b> and <i>, which are kept balanced
+export function richText( s ) {
+
+	const open = [];
+	const out = esc( s ).replace( /&lt;(\/?)(b|i)&gt;/g, ( _, close, tag ) => {
+
+		if ( ! close ) { open.push( tag ); return `<${tag}>`; }
+		if ( open.at( - 1 ) !== tag ) return ''; // a closer with no matching opener
+		open.pop();
+		return `</${tag}>`;
+
+	} );
+	return out + open.reverse().map( ( tag ) => `</${tag}>` ).join( '' );
+
+}
+
 const starStr = ( n ) => '★★★'.split( '' ).map( ( s, k ) => k < n ? s : `<span class="off">${s}</span>` ).join( '' );
 
 // what each order does, by side and key: the "How to play" table and the order panel's info box both read it.
@@ -261,7 +278,7 @@ export class Hud {
 			<div class="row" style="display:flex;justify-content:space-between;align-items:center">
 				<h1>${esc( M.title )}</h1><span class="side ${M.side}">${M.side}</span></div>
 			<div class="sub">${esc( M.subtitle )}</div>
-			<p>${M.brief}</p>
+			<p>${richText( M.brief )}</p>
 			<div class="cols">
 				<div><h3>Objectives</h3><ul>${M.goals.map( ( g ) => `<li>${esc( g )}</li>` ).join( '' )}</ul></div>
 				<div><h3>Tips</h3><ul>${M.tips.map( ( g ) => `<li>${esc( g )}</li>` ).join( '' )}</ul></div>
