@@ -25,7 +25,7 @@ const T = M.T, out = [];
 const busy = M.targets.map( ( p ) => [ p, W.countNear( p[ 0 ], p[ 1 ], 15, 0 ) ] ).sort( ( a, b ) => b[ 1 ] - a[ 1 ] )[ 0 ];
 if ( ( M.facade > 30 || M.breach > 0.2 || busy[ 1 ] > 150 ) && M.resources.gas.left > 0 && M.t - ( window.__gas ?? -99 ) > 30 ) { window.__gas = M.t; M.useGas( ...busy[ 0 ] ); out.push( 'gas' ); }
 const ex = T.exits.map( ( e, k ) => [ e, M.zone( 1 + k ) ] ).sort( ( a, b ) => b[ 1 ] - a[ 1 ] )[ 0 ];
-if ( ( ex[ 1 ] > 25 || M.breach > 0.4 ) && M.resources.water.left > 0 && M.t - ( window.__wc ?? -99 ) > 25 ) { window.__wc = M.t; M.useWater( ...( M.breach > 0.4 ? busy[ 0 ] : ex[ 0 ] ) ); out.push( 'water' ); }
+if ( ( ex[ 1 ] > 25 || M.breach > 0.4 ) && M.resources.water.left > 0 && M.t - ( window.__wc ?? -99 ) > 25 ) { window.__wc = M.t; M.spray( ...( M.breach > 0.4 ? busy[ 0 ] : ex[ 0 ] ) ); out.push( 'water' ); }
 if ( busy[ 1 ] > 120 && M.resources.reinforce.left > 0 && M.t - ( window.__rf ?? -99 ) > 60 ) { window.__rf = M.t; await M.reinforce( ...busy[ 0 ] ); out.push( 'reinforce' ); }
 const leader = W.groups.find( ( g ) => g.faction === 0 && g.identified && g.leaderState === 'active' && Math.hypot( g.leaderPos[ 0 ] - T.pos[ 0 ], g.leaderPos[ 1 ] - T.pos[ 1 ] ) < T.radius + 60 );
 const free = W.groupsOf( 1 ).filter( ( g ) => g.label === 'Reinforcements' && ! g.snatch )[ 0 ];

@@ -222,7 +222,7 @@ export class DefendMission extends Mission {
 			const guard = this.targets.map( ( p ) => this.world.countNear( p[ 0 ], p[ 1 ], 25, FACTION.POLICE ) );
 			for ( const g of this.world.groupsOf( FACTION.PROTESTER ) ) {
 
-				if ( g.goalKind === 'route' || Math.random() < 0.5 ) continue;
+				if ( ! g.center || g.goalKind === 'route' || Math.random() < 0.5 ) continue;
 				// hysteresis: a group heading for the building keeps going for at least 2 minutes (anger cools
 				// on a long walk, contact with the line brings it back), then only turns back once it has really
 				// cooled down; it mostly sticks to the door it picked

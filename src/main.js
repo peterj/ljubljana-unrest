@@ -252,9 +252,11 @@ class Game {
 			const t = g.snatch;
 			if ( t.leaderState === 'active' ) {
 
-				if ( ! g.lastSnatch || Math.hypot( g.lastSnatch[ 0 ] - t.leaderPos[ 0 ], g.lastSnatch[ 1 ] - t.leaderPos[ 1 ] ) > 3 ) {
+				const moved = ! g.lastSnatch || Math.hypot( g.lastSnatch[ 0 ] - t.leaderPos[ 0 ], g.lastSnatch[ 1 ] - t.leaderPos[ 1 ] ) > 12;
+				if ( moved && m.t - ( g.lastSnatchAt ?? - Infinity ) >= 8 ) {
 
 					g.lastSnatch = t.leaderPos;
+					g.lastSnatchAt = m.t;
 					this.world.arrest( [ g ], ...t.leaderPos );
 
 				}

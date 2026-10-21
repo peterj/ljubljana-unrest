@@ -7,6 +7,7 @@ export default { steps: [
 		const st = W.groupsOf( 1 ).filter( ( s ) => s.kind === 'squad' && ! s.cordon ).sort( ( a, b ) => Math.hypot( a.center[ 0 ] + 330, a.center[ 1 ] - 30 ) - Math.hypot( b.center[ 0 ] + 330, b.center[ 1 ] - 30 ) );
 		M.block.team = st.slice( 0, 2 ); M.block.team.forEach( ( s ) => S.busy.add( s ) ); return M.clusters.length` ],
 ], every: `
+	if ( ! window.__S ) return;
 	const S = window.__S, F = W.groupsOf( 1 ).filter( ( s ) => s.kind === 'squad' && s.center && s.alive > 8 );
 	const near = ( a, b ) => Math.hypot( a[ 0 ] - b[ 0 ], a[ 1 ] - b[ 1 ] );
 	for ( const s of F ) if ( s.cordon && ! S.busy.has( s ) ) { const c = M.clusters.find( ( c ) => near( c.front, s.anchor ) < 6 ); if ( c ) S.lineOf.set( c, s ); }
