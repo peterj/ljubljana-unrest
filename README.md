@@ -56,6 +56,12 @@ PostGIS database (see `tools/build_city.py`; the connection comes from `BLOKI_DS
   [`docs/SOUNDS.md`](docs/SOUNDS.md). The clips are included only as part of this game and may not be
   redistributed on their own. Other sounds are synthesised at runtime.
 
+## Licence
+
+The code is released under the [MIT License](LICENSE): free to use, modify and redistribute, also
+commercially, as long as the copyright notice is kept. The map data in `public/data/` and the sounds
+in `public/sfx/` keep their own licences (above).
+
 ## Note
 
 Some missions are based on real events in Ljubljana; others (The Massacre, BlackBloc, The Court,
