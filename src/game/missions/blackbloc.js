@@ -382,14 +382,14 @@ export class BlackBloc extends Mission {
 	// once per readback: who is hurt or detained, CCTV tags, burns around the fires
 	perIntel( I ) {
 
-		const st = I.st, pos = I.pos, W = this.world;
+		const W = this.world;
 		let all = 0, byPolice = 0, innocent = 0;
 		for ( const g of this.normalGroups ) {
 
 			let h = 0, hp = 0;
 			for ( const i of g.members ) {
 
-				const f = st[ i * 4 ];
+				const f = I.faction( i );
 				if ( f > 9.5 ) { h ++; if ( f < 19.5 ) hp ++; } else if ( f === FACTION.ARRESTED ) innocent ++;
 
 			}
@@ -414,7 +414,7 @@ export class BlackBloc extends Mission {
 		let held = 0, down = 0;
 		for ( const c of this.cells ) for ( const i of c.members ) {
 
-			const f = st[ i * 4 ];
+			const f = I.faction( i );
 			if ( f === FACTION.ARRESTED ) held ++;
 			else if ( f > 9.5 ) down ++;
 
@@ -446,7 +446,7 @@ export class BlackBloc extends Mission {
 			if ( ! b.burning || this.t - b.litAt > 45 ) continue;
 			for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-				const f = st[ i * 4 ], x = pos[ i * 2 ], y = pos[ i * 2 + 1 ];
+				const f = I.faction( i ), x = I.x( i ), y = I.y( i );
 				if ( f < 0 || f > 3.5 || ( x - b.pos[ 0 ] ) ** 2 + ( y - b.pos[ 1 ] ) ** 2 > ( b.r + 10 ) ** 2 ) continue;
 				if ( Math.random() < 0.02 && b.rings.some( ( r ) => ringDist( r, x, y ) < 6 ) ) this.crowd.setFaction( i, 20 + f );
 
@@ -469,8 +469,8 @@ export class BlackBloc extends Mission {
 			const [ cx, cy ] = c.center, targets = [];
 			for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-				if ( I.st[ i * 4 ] !== FACTION.POLICE ) continue;
-				const d = Math.hypot( I.pos[ i * 2 ] - cx, I.pos[ i * 2 + 1 ] - cy );
+				if ( I.faction( i ) !== FACTION.POLICE ) continue;
+				const d = Math.hypot( I.x( i ) - cx, I.y( i ) - cy );
 				if ( d > 5 && d < 28 ) targets.push( i );
 
 			}
@@ -492,12 +492,12 @@ export class BlackBloc extends Mission {
 
 			}
 
-			const i = pick( targets ), to = [ I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] ];
+			const i = pick( targets ), to = [ I.x( i ), I.y( i ) ];
 			this.throws.push( { from: [ cx, cy ], to, t: this.t, flare: v.flare } );
 			this.game.sound?.projectile( [ cx, cy ], to, v.flare );
 			if ( Math.random() < v.hit ) this.crowd.setFaction( i, 21 ); // officer hurt, by others
 			// officers under a barrage get jumpy; the crowd the stones came from gets excited
-			for ( let j = 0; j < this.crowd.count; j ++ ) if ( I.st[ j * 4 ] === FACTION.POLICE && Math.hypot( I.pos[ j * 2 ] - to[ 0 ], I.pos[ j * 2 + 1 ] - to[ 1 ] ) < 6 ) this.crowd.nudge( j, v.stress, 0 );
+			for ( let j = 0; j < this.crowd.count; j ++ ) if ( I.faction( j ) === FACTION.POLICE && Math.hypot( I.x( j ) - to[ 0 ], I.y( j ) - to[ 1 ] ) < 6 ) this.crowd.nudge( j, v.stress, 0 );
 			for ( const g of this.normalGroups ) if ( g.center && near( g.center, c.center, 30 ) ) for ( const k of g.members ) this.crowd.nudge( k, 0.015, 0 );
 
 		}
@@ -661,8 +661,8 @@ export class BlackBloc extends Mission {
 
 				for ( const i of c.members ) {
 
-					if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-					const [ x, y ] = o.toScreen( I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] );
+					if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+					const [ x, y ] = o.toScreen( I.x( i ), I.y( i ) );
 					ctx.beginPath();
 					ctx.arc( x, y, Math.max( 2.4, 0.6 / o.mpp ), 0, Math.PI * 2 );
 					ctx.fillStyle = 'rgba(8,8,10,0.95)';

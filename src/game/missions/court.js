@@ -173,13 +173,13 @@ export class CourtMission extends Mission {
 		let bi = - 1, bd = 64;
 		for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const d = ( I.pos[ i * 2 ] - B.pos[ 0 ] ) ** 2 + ( I.pos[ i * 2 + 1 ] - B.pos[ 1 ] ) ** 2;
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const d = ( I.x( i ) - B.pos[ 0 ] ) ** 2 + ( I.y( i ) - B.pos[ 1 ] ) ** 2;
 			if ( d < bd ) { bd = d; bi = i; }
 
 		}
 
-		const g = bi >= 0 && W.groups[ I.st[ bi * 4 + 1 ] ];
+		const g = bi >= 0 && W.groups[ I.group( bi ) ];
 		if ( ! g || g.kind === 'medics' ) return;
 		if ( g.leaderState !== 'active' || g.leader !== bi ) {
 
@@ -187,7 +187,7 @@ export class CourtMission extends Mission {
 			this.crowd.setGroup( g.id, { leader: bi } );
 			g.leader = bi;
 			g.leaderState = 'active';
-			g.leaderPos = [ I.pos[ bi * 2 ], I.pos[ bi * 2 + 1 ] ];
+			g.leaderPos = [ I.x( bi ), I.y( bi ) ];
 
 		}
 
@@ -325,8 +325,8 @@ class CourtPolice {
 		let n = 0, sx = 0, sy = 0;
 		for ( let i = 0; i < this.W.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const x = I.x( i ), y = I.y( i );
 			if ( ( x - p[ 0 ] ) ** 2 + ( y - p[ 1 ] ) ** 2 > r * r ) continue;
 			n ++; sx += x; sy += y;
 

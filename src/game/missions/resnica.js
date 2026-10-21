@@ -216,7 +216,7 @@ export class ResnicaRun extends Mission {
 
 			}
 
-			const live = g.members.filter( ( i ) => I.st[ i * 4 ] === FACTION.BYSTANDER );
+			const live = g.members.filter( ( i ) => I.faction( i ) === FACTION.BYSTANDER );
 			if ( ! live.length ) continue;
 			Object.assign( g, { faction: FACTION.PROTESTER, kind: 'march', label: 'Locals', mode: MODE.MARCH, leader: live[ 0 ], joined: true } );
 			live.forEach( ( i, k ) => { this.crowd.regroup( i, g.id, k ? ROLE.MEMBER : ROLE.LEADER ); this.crowd.setFaction( i, FACTION.PROTESTER ); this.crowd.nudge( i, 0.25, 1 ); } );
@@ -369,8 +369,8 @@ export class ResnicaRun extends Mission {
 		for ( const L of this.ring ) { L.n = 0; L.block = Infinity; }
 		for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ], id = this.onRing( x, y );
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const x = I.x( i ), y = I.y( i ), id = this.onRing( x, y );
 			if ( ! id ) continue;
 			const L = this.ring[ id - 1 ];
 			L.n ++;

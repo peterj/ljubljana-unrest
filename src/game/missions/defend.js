@@ -174,7 +174,7 @@ class DefendMission extends Mission {
 		for ( const g of groups ) {
 
 			let hp = 0;
-			for ( const i of g.members ) { const f = I.st[ i * 4 ]; if ( ( f > 9.5 && f < 19.5 ) || f === FACTION.ARRESTED ) hp ++; }
+			for ( const i of g.members ) { const f = I.faction( i ); if ( ( f > 9.5 && f < 19.5 ) || f === FACTION.ARRESTED ) hp ++; }
 			const fresh = hp - ( g.hurtByPolice ?? 0 );
 			g.hurtByPolice = hp;
 			if ( fresh <= 0 || ! g.center ) continue;
@@ -282,8 +282,8 @@ class DefendMission extends Mission {
 		let n = 0;
 		for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER || I.st[ i * 4 + 2 ] < 0.4 ) continue;
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			if ( I.faction( i ) !== FACTION.PROTESTER || I.agitation( i ) < 0.4 ) continue;
+			const x = I.x( i ), y = I.y( i );
 			if ( ( x - cx ) ** 2 + ( y - cy ) ** 2 > R * R ) continue;
 			if ( rings.some( ( r ) => ringDist( r, x, y ) < 3 ) ) n ++;
 

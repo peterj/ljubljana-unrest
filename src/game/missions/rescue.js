@@ -183,18 +183,18 @@ export class RescueMission extends Mission {
 		let bi = - 1, bd = 64;
 		for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const d = ( I.pos[ i * 2 ] - P.pos[ 0 ] ) ** 2 + ( I.pos[ i * 2 + 1 ] - P.pos[ 1 ] ) ** 2;
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const d = ( I.x( i ) - P.pos[ 0 ] ) ** 2 + ( I.y( i ) - P.pos[ 1 ] ) ** 2;
 			if ( d < bd ) { bd = d; bi = i; }
 
 		}
 
-		const from = bi >= 0 && W.groups[ I.st[ bi * 4 + 1 ] ];
+		const from = bi >= 0 && W.groups[ I.group( bi ) ];
 		if ( ! from || ( from.kind === 'medics' && from !== g ) ) return;
 		if ( from !== g ) { from.members = from.members.filter( ( i ) => i !== bi ); g.members.push( bi ); }
 		this.crowd.regroup( bi, g.id, ROLE.LEADER );
 		this.crowd.setGroup( g.id, { leader: bi, speed: 0.85 } );
-		Object.assign( g, { leader: bi, leaderState: 'active', leaderPos: [ I.pos[ bi * 2 ], I.pos[ bi * 2 + 1 ] ], leaderReported: false } );
+		Object.assign( g, { leader: bi, leaderState: 'active', leaderPos: [ I.x( bi ), I.y( bi ) ], leaderReported: false } );
 		P.down = false;
 		P.carried = true;
 		P.carriers ++;
@@ -288,7 +288,7 @@ export class RescueMission extends Mission {
 		if ( P.escaping && ! P.down && near( P.pos, at, 7 ) ) {
 
 			const I = W.intel;
-			for ( const i of P.group.members ) if ( I.st[ i * 4 ] === FACTION.PROTESTER && near( [ I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] ], at, 12 ) ) this.crowd.setFaction( i, - 1 );
+			for ( const i of P.group.members ) if ( I.faction( i ) === FACTION.PROTESTER && near( [ I.x( i ), I.y( i ) ], at, 12 ) ) this.crowd.setFaction( i, - 1 );
 			P.aboard = true;
 			this.crowd.u.parting.value = - 1;
 			W.patrols.driveTo( C, ...this.exit() );
@@ -395,15 +395,15 @@ export class RescueMission extends Mission {
 			if ( this.t - q.aimT > 2 && T.center ) this.aim( q, T.center );
 
 			// drilled, not enraged: kept below the agitation at which officers in contact grab fighters (kernel)
-			const mine = q.members.filter( ( i ) => I.st[ i * 4 ] === FACTION.PROTESTER );
-			for ( const i of mine ) if ( I.st[ i * 4 + 2 ] > 0.56 ) this.crowd.nudge( i, 0.55 - I.st[ i * 4 + 2 ], 0 );
+			const mine = q.members.filter( ( i ) => I.faction( i ) === FACTION.PROTESTER );
+			for ( const i of mine ) if ( I.agitation( i ) > 0.56 ) this.crowd.nudge( i, 0.55 - I.agitation( i ), 0 );
 			// blows: officers of that squad with AntiFa members on them go down
 			for ( const j of T.members ) {
 
-				if ( I.st[ j * 4 ] !== FACTION.POLICE ) continue;
-				const x = I.pos[ j * 2 ], y = I.pos[ j * 2 + 1 ];
+				if ( I.faction( j ) !== FACTION.POLICE ) continue;
+				const x = I.x( j ), y = I.y( j );
 				let k = 0;
-				for ( const i of mine ) if ( ( I.pos[ i * 2 ] - x ) ** 2 + ( I.pos[ i * 2 + 1 ] - y ) ** 2 < 6.25 ) k ++;
+				for ( const i of mine ) if ( ( I.x( i ) - x ) ** 2 + ( I.y( i ) - y ) ** 2 < 6.25 ) k ++;
 				if ( k && Math.random() < 1 - ( 1 - ASSAULT_HIT ) ** k ) this.crowd.setFaction( j, 21 );
 
 			}
@@ -486,8 +486,8 @@ export class RescueMission extends Mission {
 			if ( ! ( q.alive > 0 ) || ! q.center ) continue;
 			if ( I ) for ( const i of q.members ) {
 
-				if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-				const [ x, y ] = o.toScreen( I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] );
+				if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+				const [ x, y ] = o.toScreen( I.x( i ), I.y( i ) );
 				ctx.beginPath();
 				ctx.arc( x, y, Math.max( 2.4, 0.6 / o.mpp ), 0, Math.PI * 2 );
 				ctx.fillStyle = 'rgba(8,8,10,0.95)';
@@ -599,8 +599,8 @@ class RescuePolice {
 		let n = 0, sx = 0, sy = 0;
 		for ( let i = 0; i < this.W.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const x = I.x( i ), y = I.y( i );
 			if ( ( x - S[ 0 ] ) ** 2 + ( y - S[ 1 ] ) ** 2 > 4900 ) continue;
 			n ++; sx += x; sy += y;
 

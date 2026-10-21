@@ -409,9 +409,9 @@ export class MassacreMission extends Mission {
 		let inFire = 0;
 		for ( let i = 0; i < n; i ++ ) {
 
-			const f = I.st[ i * 4 ];
+			const f = I.faction( i );
 			if ( f < 0 || f > 3.5 || this.hit.has( i ) ) continue;
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			const x = I.x( i ), y = I.y( i );
 			if ( ! this.exposed( x, y ) ) continue;
 			if ( f !== FACTION.BYSTANDER || dist( [ x, y ], this.mid ) < 120 ) inFire ++;
 			for ( const G of this.guns ) if ( ( x - G.x ) ** 2 + ( y - G.y ) ** 2 < GUN_RANGE * GUN_RANGE ) G.cand.push( i, x, y );
@@ -481,7 +481,7 @@ export class MassacreMission extends Mission {
 		for ( const [ along, i ] of inLine ) {
 
 			if ( this.hit.has( i ) ) continue;
-			const f = I.st[ i * 4 ] % 10;
+			const f = I.faction( i ) % 10;
 			this.hit.add( i );
 			this.crowd.setFaction( i, ( Math.random() < KILL_P ? 30 : 20 ) + f );
 			end = along;

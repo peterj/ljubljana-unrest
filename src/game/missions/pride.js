@@ -288,19 +288,19 @@ export class PrideMission extends Mission {
 		let bi = - 1, bd = 64;
 		for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const d = ( I.pos[ i * 2 ] - B.pos[ 0 ] ) ** 2 + ( I.pos[ i * 2 + 1 ] - B.pos[ 1 ] ) ** 2;
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const d = ( I.x( i ) - B.pos[ 0 ] ) ** 2 + ( I.y( i ) - B.pos[ 1 ] ) ** 2;
 			if ( d < bd ) { bd = d; bi = i; }
 
 		}
 
-		const g = bi >= 0 && W.groups[ I.st[ bi * 4 + 1 ] ];
+		const g = bi >= 0 && W.groups[ I.group( bi ) ];
 		if ( ! g || g.kind !== 'march' ) return;
 		if ( g.leaderState !== 'active' || g.leader !== bi ) {
 
 			this.crowd.regroup( bi, g.id, ROLE.LEADER );
 			this.crowd.setGroup( g.id, { leader: bi } );
-			Object.assign( g, { leader: bi, leaderState: 'active', leaderPos: [ I.pos[ bi * 2 ], I.pos[ bi * 2 + 1 ] ] } );
+			Object.assign( g, { leader: bi, leaderState: 'active', leaderPos: [ I.x( bi ), I.y( bi ) ] } );
 
 		}
 
@@ -316,7 +316,7 @@ export class PrideMission extends Mission {
 	tensionTick( I, dt ) {
 
 		if ( ! dt ) return;
-		const W = this.world, pos = I.pos, st = I.st;
+		const W = this.world;
 		for ( const c of this.clusters ) {
 
 			const g = c.g;
@@ -326,9 +326,9 @@ export class PrideMission extends Mission {
 			const close = [];
 			for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-				const f = st[ i * 4 ];
+				const f = I.faction( i );
 				if ( f !== FACTION.PROTESTER && f !== FACTION.POLICE ) continue;
-				const dx = pos[ i * 2 ] - cx, dy = pos[ i * 2 + 1 ] - cy;
+				const dx = I.x( i ) - cx, dy = I.y( i ) - cy;
 				if ( dx * dx + dy * dy > 22 * 22 ) continue;
 				if ( f === FACTION.PROTESTER ) { march ++; close.push( i ); continue; }
 				const a = dx * tx + dy * ty, o = dx * nx + dy * ny;
@@ -513,10 +513,10 @@ export class PrideMission extends Mission {
 		K.prog ??= new Map();
 		for ( const i of K.g.members ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.COUNTER ) { K.prog.delete( i ); continue; }
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			if ( I.faction( i ) !== FACTION.COUNTER ) { K.prog.delete( i ); continue; }
+			const x = I.x( i ), y = I.y( i );
 			let n = 0;
-			for ( let j = 0; j < this.crowd.count && ! n; j ++ ) if ( I.st[ j * 4 ] === FACTION.POLICE && ( I.pos[ j * 2 ] - x ) ** 2 + ( I.pos[ j * 2 + 1 ] - y ) ** 2 < 4.84 ) n ++;
+			for ( let j = 0; j < this.crowd.count && ! n; j ++ ) if ( I.faction( j ) === FACTION.POLICE && ( I.x( j ) - x ) ** 2 + ( I.y( j ) - y ) ** 2 < 4.84 ) n ++;
 			const p = n ? ( K.prog.get( i ) ?? 0 ) + dt : Math.max( 0, ( K.prog.get( i ) ?? 0 ) - dt );
 			K.prog.set( i, p );
 			if ( p >= 4 ) { this.crowd.setFaction( i, FACTION.ARRESTED_SITTER ); K.prog.delete( i ); }
@@ -529,20 +529,20 @@ export class PrideMission extends Mission {
 	// (neutral); anyone detained mid-brawl (agitation ≥ 0.5) counts as a brawler, whichever side
 	arrestTick( I ) {
 
-		const st = I.st, n = this.crowd.count;
+		const n = this.crowd.count;
 		if ( ! this.prevF || this.prevF.length < n ) { const p = new Float32Array( n ); if ( this.prevF ) p.set( this.prevF ); this.prevF = p; }
 		const cost = { march: [ - 1, 'police arresting Pride marchers' ], counter: [ - 0.6, 'arresting peaceful counter-protesters' ], violent: [ 0.4, 'attackers arrested' ],
 			blockade: [ - 0.05, '' ], brawler: [ - 0.1, '' ] };
 		let d = 0, why = '', marchAt = null;
 		for ( let i = 0; i < n; i ++ ) {
 
-			const f = st[ i * 4 ];
+			const f = I.faction( i );
 			if ( ( f === FACTION.ARRESTED || f === FACTION.ARRESTED_SITTER ) && this.prevF[ i ] >= 0 ) {
 
-				const g = this.world.groups[ st[ i * 4 + 1 ] ];
-				const kind = g?.kind === 'counter' && g.mode === MODE.RIOT ? 'violent' : ( g?.kind === 'march' || g?.kind === 'counter' ) && st[ i * 4 + 2 ] >= 0.5 ? 'brawler' : g?.kind;
+				const g = this.world.groups[ I.group( i ) ];
+				const kind = g?.kind === 'counter' && g.mode === MODE.RIOT ? 'violent' : ( g?.kind === 'march' || g?.kind === 'counter' ) && I.agitation( i ) >= 0.5 ? 'brawler' : g?.kind;
 				if ( cost[ kind ] ) { this.arrests[ kind ] ++; d += cost[ kind ][ 0 ]; if ( cost[ kind ][ 1 ] && ( ! why || cost[ kind ][ 0 ] < 0 ) ) why = cost[ kind ][ 1 ]; }
-				if ( kind === 'march' ) marchAt = [ I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] ];
+				if ( kind === 'march' ) marchAt = [ I.x( i ), I.y( i ) ];
 
 			}
 

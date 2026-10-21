@@ -202,10 +202,10 @@ export class SitInMission extends Mission {
 		const W = this.world, pol = W.groupsOf( FACTION.POLICE ).filter( ( q ) => q.center && q.kind !== 'crew' );
 		for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-			const f = I.st[ i * 4 ], was = this.prevFac[ i ];
+			const f = I.faction( i ), was = this.prevFac[ i ];
 			this.prevFac[ i ] = f;
 			if ( ( f !== FACTION.ARRESTED && f !== FACTION.ARRESTED_SITTER ) || was === f || was < 0 || was > 9.5 ) continue;
-			const sitter = this.sitterSet.has( i ), x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			const sitter = this.sitterSet.has( i ), x = I.x( i ), y = I.y( i );
 			let s = null, bd = 12 * 12; // the nearest squad making arrests, else the nearest squad at all
 			for ( const q of pol ) { const d = ( q.center[ 0 ] - x ) ** 2 + ( q.center[ 1 ] - y ) ** 2 - ( q.mode === MODE.ARREST ? 1e4 : 0 ); if ( d < bd ) { bd = d; s = q; } }
 			if ( s ) {
@@ -243,8 +243,8 @@ export class SitInMission extends Mission {
 				let best = null, bd = Infinity, sit = false;
 				for ( let i = 0; i < this.crowd.count; i ++ ) {
 
-					if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-					const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ], dSpot = ( x - j.at[ 0 ] ) ** 2 + ( y - j.at[ 1 ] ) ** 2;
+					if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+					const x = I.x( i ), y = I.y( i ), dSpot = ( x - j.at[ 0 ] ) ** 2 + ( y - j.at[ 1 ] ) ** 2;
 					const isSit = this.sitterSet.has( i ) && dSpot < 144;
 					if ( ! isSit && ( sit || dSpot > 36 ) ) continue;
 					const d = ( x - c[ 0 ] ) ** 2 + ( y - c[ 1 ] ) ** 2;
@@ -316,7 +316,7 @@ export class SitInMission extends Mission {
 	sittersNear( at, r ) {
 
 		const I = this.world.intel;
-		for ( const i of this.sitterSet ) if ( I.st[ i * 4 ] === FACTION.PROTESTER && ( I.pos[ i * 2 ] - at[ 0 ] ) ** 2 + ( I.pos[ i * 2 + 1 ] - at[ 1 ] ) ** 2 < r * r ) return true;
+		for ( const i of this.sitterSet ) if ( I.faction( i ) === FACTION.PROTESTER && ( I.x( i ) - at[ 0 ] ) ** 2 + ( I.y( i ) - at[ 1 ] ) ** 2 < r * r ) return true;
 		return false;
 
 	}
@@ -345,7 +345,7 @@ export class SitInMission extends Mission {
 
 			if ( ! g.center || ! near( g.center, [ x, y ], 80 ) ) continue;
 			this.crowd.nudge( g.leader, sitter ? 0.15 : 0.06, 0.05 );
-			for ( const i of g.members ) if ( I.st[ i * 4 ] === FACTION.PROTESTER && Math.random() < 0.1 ) this.crowd.nudge( i, sitter ? 0.1 : 0.04, 0.02 );
+			for ( const i of g.members ) if ( I.faction( i ) === FACTION.PROTESTER && Math.random() < 0.1 ) this.crowd.nudge( i, sitter ? 0.1 : 0.04, 0.02 );
 
 		}
 

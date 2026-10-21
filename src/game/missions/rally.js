@@ -245,8 +245,8 @@ class PoliceAI {
 		const I = this.W.intel, [ tx, ty ] = this.target, out = [];
 		for ( let i = 0; i < this.m.crowd.count; i ++ ) {
 
-			if ( I.st[ i * 4 ] !== FACTION.PROTESTER ) continue;
-			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ];
+			if ( I.faction( i ) !== FACTION.PROTESTER ) continue;
+			const x = I.x( i ), y = I.y( i );
 			if ( ( x - tx ) ** 2 + ( y - ty ) ** 2 < RALLY_R * RALLY_R ) out.push( [ x, y ] );
 
 		}
