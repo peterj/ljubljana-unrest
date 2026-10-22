@@ -1,1 +1,3 @@
-export { SDK_VERSION, defineScenario, place, survive } from './definition.js';
+export { SDK_VERSION, defineBehavior, defineScenario, extract, holdBuilding, landmark, place, protect, survive, target } from './definition.js';
+export { followRoute } from './route.js';
+export { policeCommands } from './commands.js';

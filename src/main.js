@@ -97,7 +97,7 @@ class Game {
 		this._input( canvas );
 
 		if ( M ) await this.load( M );
-		else this.hud.menu( MISSIONS, ( q ) => this.go( q.id ), this.plugins.failed );
+		else this.hud.menu( MISSIONS.filter( ( mission ) => mission.menu !== false ), ( q ) => this.go( q.id ), this.plugins.failed );
 
 		boot.classList.add( 'hide' );
 		this.renderer.setAnimationLoop( () => this.frame() );
@@ -146,7 +146,7 @@ class Game {
 
 		this.hud.show( this.mission );
 		this.crowd.step();
-		await this.world.refreshIntel();
+		await this.refreshIntel();
 		this.hud.update( this.mission );
 		this.hud.briefing( M, () => { this.paused = false; this.mission.start?.(); }, this.mission.commands() );
 
@@ -225,7 +225,7 @@ class Game {
 
 			this.intelBusy = true;
 			this.lastIntel = now;
-			this.world.refreshIntel().then( () => { this.intelBusy = false; this.onIntel(); } );
+			this.refreshIntel().then( () => { this.intelBusy = false; this.onIntel(); } );
 
 		}
 
@@ -243,6 +243,15 @@ class Game {
 		this.overlay.draw( this );
 		this.flashU.value = this.strobeOff ? 0 : Math.max( 0, this.flashU.value - 0.016 * 9 ); // a flash fades out in ~0.1 s
 		this.pipeline.render();
+
+	}
+
+	async refreshIntel() {
+
+		const mission = this.mission, stamp = mission?.observationStamp?.();
+		const sample = await this.world.refreshIntel();
+		mission?.onObservation?.( sample, stamp );
+		return sample;
 
 	}
 
@@ -334,9 +343,9 @@ class Game {
 		if ( key !== 'l' ) this.drawing = false;
 		const c = m.commands().find( ( q ) => q.key === key );
 		if ( ! c || ! c.run ) return;
-		if ( ! this.hasSelFor( c ) ) { m.event( c.forCars ? 'Select a patrol car first' : c.forCordon ? 'Select squads standing in a cordon line (right-drag to form one)' : 'Select a unit first', 'warn' ); return; }
+		if ( ! this.hasSelFor( c ) ) { m.onCommandBlocked?.( key ); m.event( c.forCars ? 'Select a patrol car first' : c.forCordon ? 'Select squads standing in a cordon line (right-drag to form one)' : 'Select a unit first', 'warn' ); return; }
 		const r = c.resource ? m.resources[ c.resource ] : null;
-		if ( r && ( r.left <= 0 || r.ready > 0 ) ) { this.sound.refuse(); m.event( `${c.label} not available`, 'warn' ); return; }
+		if ( r && ( r.left <= 0 || r.ready > 0 ) ) { m.onCommandBlocked?.( key ); this.sound.refuse(); m.event( `${c.label} not available`, 'warn' ); return; }
 		if ( c.aim ) { this._aim( c ); return; }
 		// commands without a target run immediately; targeted ones arm and fire on the next map click
 		if ( c.run.length === 0 ) { c.run(); this.emit( 'order', { key } ); return; }
@@ -476,8 +485,9 @@ class Game {
 				const sel = this.squads;
 				for ( const c of this.cars ) {
 
-					if ( this.world.patrols.driveTo( c, w.x, w.y ) ) this.emit( 'drive', { car: c, at: [ w.x, w.y ] } );
-					else m.event( `${c.label}: no road there`, 'warn' );
+					const handled = m.onPlayerVehicleDrive?.( { vehicle: c, at: [ w.x, w.y ] } );
+					if ( handled === false && ! this.world.patrols.driveTo( c, w.x, w.y ) ) m.event( `${c.label}: no road there`, 'warn' );
+					else this.emit( 'drive', { car: c, at: [ w.x, w.y ] } );
 
 				}
 
@@ -486,8 +496,13 @@ class Game {
 
 					if ( m.side === 'police' ) {
 
-						if ( right.moved ) this.world.lineSquads( sel, right.a, [ w.x, w.y ], this.world.intel?.pos );
-						else this.world.moveSquads( sel, w.x, w.y );
+						const handled = m.onPlayerMovement?.( { type: right.moved ? 'line' : 'move', units: sel, a: right.a, at: [ w.x, w.y ] } );
+						if ( ! handled ) {
+
+							if ( right.moved ) this.world.lineSquads( sel, right.a, [ w.x, w.y ], this.world.intel?.pos );
+							else this.world.moveSquads( sel, w.x, w.y );
+
+						}
 						this.sound.order( right.moved ? 'line' : 'move', [ w.x, w.y ] );
 						for ( const g of sel ) g.snatch = null;
 						this.emit( right.moved ? 'line' : 'move', { a: right.a, at: [ w.x, w.y ], how: right.how, units: sel } );
@@ -585,7 +600,7 @@ class Game {
 			if ( s % 30 === 29 ) {
 
 				this.stats = await this.crowd.readStats();
-				if ( s % 60 === 59 ) { await this.world.refreshIntel(); this.onIntel(); }
+				if ( s % 60 === 59 ) { await this.refreshIntel(); this.onIntel(); }
 
 			}
 

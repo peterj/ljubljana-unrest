@@ -18,6 +18,8 @@ test( 'all built-ins remain unchanged when a Scenario SDK v1 plugin loads', asyn
 	assert.deepEqual( await loadPlugin( './scenario.js', { base, importer: async () => scenarioPlugin } ), [ 'hello-scenario' ] );
 	assert.deepEqual( MISSIONS.slice( 0, before.length ), before );
 	assert.equal( MISSIONS.length, 14 );
+	assert.equal( MISSIONS.at( - 1 ).menu, false );
+	assert.equal( MISSIONS.some( ( mission ) => mission.id === 'hello-scenario' ), true );
 	const current = [ ...MISSIONS ];
 	await assert.rejects( loadPlugin( './duplicate.js', { base, importer: async () => scenarioPlugin } ), /already registered/ );
 	assert.deepEqual( MISSIONS, current );
@@ -73,7 +75,7 @@ test( 'plugin factories receive only definition builders, never the internal mis
 		sdkVersion: 1,
 		default: ( sdk ) => {
 
-			assert.deepEqual( Object.keys( sdk ).sort(), [ 'SDK_VERSION', 'defineScenario', 'place', 'survive' ] );
+			assert.deepEqual( Object.keys( sdk ).sort(), [ 'SDK_VERSION', 'defineBehavior', 'defineScenario', 'extract', 'followRoute', 'holdBuilding', 'landmark', 'place', 'policeCommands', 'protect', 'survive', 'target' ] );
 			assert.equal( sdk.Mission, undefined );
 			assert.equal( sdk.FACTION, undefined );
 			return scenarioPlugin.default( sdk );

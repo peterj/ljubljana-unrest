@@ -1,7 +1,7 @@
 export const sdkVersion = 1;
 
 export default ( { defineScenario, place, survive } ) => defineScenario( {
-	id: 'hello-scenario',
+	id: 'hello-scenario', menu: false,
 	title: 'Hello Square: SDK Preview',
 	subtitle: 'A definition-based scenario',
 	brief: 'Keep Trg republike calm for one minute.',

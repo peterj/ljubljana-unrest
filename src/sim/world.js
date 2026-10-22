@@ -338,9 +338,11 @@ export class World {
 
 	}
 
-	async march( groups, x, y, r = 20 ) {
+	async march( groups, x, y, r = 20, { layer, valid = () => true } = {} ) {
 
-		const L = await this.fieldTo( x, y, r );
+		if ( ! valid() ) return false;
+		const L = layer ?? await this.fieldTo( x, y, r );
+		if ( ! valid() ) return false;
 		for ( const g of groups ) {
 
 			this.setLayer( g, L );
@@ -409,10 +411,12 @@ export class World {
 	}
 
 	// police: compact blocks at a point (multiple squads side by side)
-	async moveSquads( squads, x, y ) {
+	async moveSquads( squads, x, y, { layer, valid = () => true } = {} ) {
 
+		if ( ! valid() ) return false;
 		this.uncordon( squads );
-		const L = await this.fieldTo( x, y, 12 );
+		const L = layer ?? await this.fieldTo( x, y, 12 );
+		if ( ! valid() ) return false;
 		const cols = Math.ceil( Math.sqrt( squads.length ) );
 		squads.forEach( ( g, k ) => {
 
@@ -431,8 +435,9 @@ export class World {
 	// Only officers on their feet get a slot, so a line re-formed after losses has no holes. The line is
 	// remembered (g.cordon, shared by its squads) for cordonCheck. keepField: a short step (officers within 30 m of
 	// their slots walk straight to them), so the squads keep their flow field instead of taking a new layer.
-	async lineSquads( squads, a, b, pos, cordon, { keepField = false } = {} ) {
+	async lineSquads( squads, a, b, pos, cordon, { keepField = false, layer, valid = () => true } = {} ) {
 
+		if ( ! valid() ) return false;
 		this.uncordon( squads );
 		const mx = ( a[ 0 ] + b[ 0 ] ) / 2, my = ( a[ 1 ] + b[ 1 ] ) / 2;
 		let dx = b[ 0 ] - a[ 0 ], dy = b[ 1 ] - a[ 1 ];
@@ -456,7 +461,8 @@ export class World {
 
 		} );
 		this.crowd.setOffsets( order.map( ( o ) => o[ 0 ] ), offs );
-		const L = keepField ? null : await this.fieldTo( mx, my, Math.min( len / 2, 25 ) );
+		const L = keepField ? null : layer ?? await this.fieldTo( mx, my, Math.min( len / 2, 25 ) );
+		if ( ! valid() ) return false;
 		const mode = cordon.push ? MODE.SHOVE : MODE.FORMATION; // closing ranks mid-push: the line keeps pushing
 		for ( const g of squads ) {
 
@@ -470,8 +476,9 @@ export class World {
 	}
 
 	// police: encircle (x, y); ring slots assigned by bearing so lines do not cross while forming
-	async kettle( squads, x, y, radius, pos, { tighten = 0.5 } = {} ) {
+	async kettle( squads, x, y, radius, pos, { tighten = 0.5, layer, valid = () => true } = {} ) {
 
+		if ( ! valid() ) return false;
 		this.uncordon( squads );
 		this.onFx?.( 'kettle', x, y );
 		const officers = squads.flatMap( ( g ) => g.members );
@@ -489,7 +496,8 @@ export class World {
 		}
 
 		this.crowd.setOffsets( idx, offs );
-		const L = await this.fieldTo( x, y, radius + 10 );
+		const L = layer ?? await this.fieldTo( x, y, radius + 10 );
+		if ( ! valid() ) return false;
 		for ( const g of squads ) {
 
 			this.setLayer( g, L );
@@ -502,11 +510,13 @@ export class World {
 
 	}
 
-	async charge( squads, x, y ) {
+	async charge( squads, x, y, { layer, valid = () => true } = {} ) {
 
+		if ( ! valid() ) return false;
 		this.uncordon( squads );
 		this.onFx?.( 'charge', x, y );
-		const L = await this.fieldTo( x, y, 6 );
+		const L = layer ?? await this.fieldTo( x, y, 6 );
+		if ( ! valid() ) return false;
 		for ( const g of squads ) {
 
 			this.setLayer( g, L );
@@ -520,10 +530,12 @@ export class World {
 
 	// arrest squads wade in toward (x, y) and restrain whoever they hold; low force, slow. aim: the exact target when
 	// (x, y, r) is a coarse field shared by several chasers (they follow it into r, then make for aim)
-	async arrest( squads, x, y, r = 5, aim = null ) {
+	async arrest( squads, x, y, r = 5, aim = null, { layer, valid = () => true } = {} ) {
 
+		if ( ! valid() ) return false;
 		this.uncordon( squads );
-		const L = await this.fieldTo( x, y, r );
+		const L = layer ?? await this.fieldTo( x, y, r );
+		if ( ! valid() ) return false;
 		const [ ax, ay ] = aim ?? [ x, y ];
 		for ( const g of squads ) {
 
