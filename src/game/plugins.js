@@ -1,8 +1,4 @@
-// Mission plugins: ES modules loaded at start-up from ?plugin=<url> (repeatable).
-// A plugin declares the SDK version it was written for and default-exports a function that receives the SDK and returns a
-// mission class or an array of them (see examples/hello-mission.js). It runs with full access to the page, so: files from
-// this site are trusted, anything else loads only if the host allows remote plugins, and then only after the player confirms.
-import * as sdk from './sdk/index.js';
+import * as sdk from './scenarios/index.js';
 import { problem, registerMission } from './registry.js';
 
 const TRUST = 'lu-plugin-trust'; // sessionStorage: remote URLs the player already confirmed in this tab
@@ -39,7 +35,16 @@ function remember( href, storage ) {
 
 }
 
-const within = ( promise, ms ) => Promise.race( [ promise, new Promise( ( _, fail ) => setTimeout( () => fail( new Error( `no answer after ${ms / 1000} s` ) ), ms ) ) ] );
+async function within( promise, ms ) {
+
+	let timer;
+	try {
+
+		return await Promise.race( [ promise, new Promise( ( _, fail ) => { timer = setTimeout( () => fail( new Error( `no answer after ${ms / 1000} s` ) ), ms ); } ) ] );
+
+	} finally { clearTimeout( timer ); }
+
+}
 
 // -> the ids of the missions the plugin registered; throws (and registers nothing) if anything is wrong with it
 export async function loadPlugin( raw, {
@@ -64,8 +69,10 @@ export async function loadPlugin( raw, {
 
 		const mod = await importer( url.href );
 		if ( mod.sdkVersion !== sdk.SDK_VERSION ) throw new Error( `written for SDK ${mod.sdkVersion ?? '(undeclared)'}, this game offers ${sdk.SDK_VERSION}` );
-		const made = typeof mod.default === 'function' && ! ( mod.default.prototype instanceof sdk.Mission ) ? await mod.default( sdk ) : mod.default;
-		return [ made ].flat();
+		if ( typeof mod.default !== 'function' ) throw new Error( 'SDK v1 requires a scenario factory' );
+		const made = await mod.default( sdk );
+		const { scenarioMission } = await import( './scenarios/mission.js' );
+		return [ made ].flat().map( scenarioMission );
 
 	} )(), timeout );
 
