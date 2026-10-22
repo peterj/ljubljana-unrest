@@ -91,3 +91,51 @@ test( 'a turn that never forms gives up waiting and advances anyway', () => {
 	assert.ok( cordon.push.done > 0 );
 
 } );
+
+test( 'a line raises shields once most officers stand on it, and only where the player commands the police', () => {
+
+	const { world, squad, cordon } = cordonFixture();
+	assert.deepEqual( world.cordonCheck( 1 ), [], 'no bracing unless asked' );
+	assert.equal( squad.mode, MODE.FORMATION );
+	const [ e ] = world.cordonCheck( 1, { brace: true } );
+	assert.equal( e.type, 'brace' );
+	assert.equal( cordon.braced, true );
+	assert.equal( squad.mode, MODE.BRACE );
+	assert.deepEqual( world.cordonCheck( 2, { brace: true } ), [], 'once' );
+
+} );
+
+test( 'a line still forming, re-formed or pushing is not braced', async () => {
+
+	const { world, squad, cordon, stand } = cordonFixture();
+	stand( [ - 10, 10 ], [ 10, 10 ] ); // 10 m off the line
+	assert.deepEqual( world.cordonCheck( 1, { brace: true } ), [] );
+	stand( cordon.a, cordon.b );
+	world.cordonCheck( 2, { brace: true } );
+	assert.equal( squad.mode, MODE.BRACE );
+	await world.lineSquads( cordon.squads, [ - 10, 5 ], [ 10, 5 ], world.intel.pos, cordon, { keepField: true } );
+	assert.equal( cordon.braced, false );
+	assert.equal( squad.mode, MODE.FORMATION );
+	stand( cordon.a, cordon.b );
+	world.cordonCheck( 3, { brace: true } );
+	assert.equal( squad.mode, MODE.BRACE );
+	world.shieldPush( [ squad ], 0, 30 );
+	assert.equal( cordon.braced, false );
+	assert.equal( squad.mode, MODE.SHOVE );
+	assert.deepEqual( world.cordonCheck( 4, { brace: true } ), [] );
+
+} );
+
+test( 'the rows of a line are staggered so the second covers the gaps of the first', async () => {
+
+	const { world, squad } = cordonFixture();
+	let offsets;
+	world.crowd.setOffsets = ( indices, offs ) => { offsets = offs; };
+	await world.lineSquads( [ squad ], [ - 5, 0 ], [ 5, 0 ], world.intel.pos, undefined, { keepField: true } ); // 20 officers on 10 m: 2 rows
+	const front = [], back = [];
+	for ( let k = 0; k < offsets.length / 2; k ++ ) ( Math.abs( offsets[ k * 2 + 1 ] ) < 0.1 ? front : back ).push( offsets[ k * 2 ] );
+	assert.equal( front.length, 10 ); assert.equal( back.length, 10 );
+	const gap = front[ 1 ] - front[ 0 ];
+	for ( let k = 0; k < 10; k ++ ) close( back[ k ] - front[ k ], gap / 2, 1e-5 );
+
+} );

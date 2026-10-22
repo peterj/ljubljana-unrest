@@ -337,10 +337,11 @@ class Game {
 		}
 
 		// cordon lines that are losing officers close ranks, then fall back (both sides see it)
-		for ( const e of this.world.cordonCheck( m.t ) ) {
+		for ( const e of this.world.cordonCheck( m.t, { brace: m.side === 'police' } ) ) {
 
 			const ours = m.side === 'police';
 			m.onCordon( e );
+			if ( e.type === 'brace' ) { m.event( `${e.label}: in line, shields up`, 'info', e.at ); continue; }
 			this.sound.play( e.type === 'retreat' ? 'whistle_3' : 'whistle_1', e.at, { vol: - 3 } );
 			m.event( e.type === 'retreat' ? `${e.label}: the line is breaking — falling back to re-form` : `${e.label}: officers down, the line closes ranks`,
 				e.type === 'retreat' ? ( ours ? 'bad' : 'good' ) : ( ours ? 'warn' : 'info' ), e.at );

@@ -438,7 +438,7 @@ export class World {
 
 	}
 
-	// police: a cordon line from a to b shared by the squads, 2–3 deep; officers keep their order along it.
+	// police: a cordon line from a to b shared by the squads, 2–3 deep, rows staggered; officers keep their order along it.
 	// Only officers on their feet get a slot, so a line re-formed after losses has no holes. The line is
 	// remembered (g.cordon, shared by its squads) for cordonCheck. keepField: a short step (officers within 30 m of
 	// their slots walk straight to them), so the squads keep their flow field instead of taking a new layer.
@@ -456,7 +456,7 @@ export class World {
 		const officers = squads.flatMap( ( g ) => g.members ).filter( ( i ) => ! st || st[ i * 4 ] === FACTION.POLICE );
 		if ( cordon ) for ( const g of squads ) if ( ! cordon.squads.includes( g ) ) cordon.n0 += this.standing( g ); // joining it
 		cordon = cordon ?? { n0: officers.length, len0: len, closed: 0, retreatAt: - 1e9 }; // strength and length when formed
-		Object.assign( cordon, { a, b, squads: [ ...squads ] } );
+		Object.assign( cordon, { a, b, squads: [ ...squads ], braced: false } ); // shields go up again once it stands (cordonCheck)
 		for ( const g of squads ) g.cordon = cordon;
 		const rows = Math.max( 1, Math.min( 4, Math.ceil( officers.length * 0.75 / len ) ) );
 		const per = Math.ceil( officers.length / rows );
@@ -464,8 +464,9 @@ export class World {
 		const offs = [];
 		order.forEach( ( _, k ) => {
 
+			// odd rows stand half a gap along, covering the gaps of the row in front
 			const col = Math.floor( k / rows ), row = k % rows;
-			const t = ( per > 1 ? col / ( per - 1 ) - 0.5 : 0 ) * len;
+			const t = ( per > 1 ? ( col + ( row % 2 ) * 0.5 ) / ( per - 1 ) - 0.5 : 0 ) * len;
 			offs.push( dx * t - nx * row * 0.8, dy * t - ny * row * 0.8 );
 
 		} );
@@ -710,6 +711,7 @@ export class World {
 		const { L } = P;
 		const turn = P.turn ? { t: 0, max: Math.min( 30, 6 + Math.hypot( L.b[ 0 ] - L.a[ 0 ], L.b[ 1 ] - L.a[ 1 ] ) / 2 * P.turn.angle / 0.8 ) } : null;
 		L.push = { n: P.n, d: P.d, done: 0, c0: this.lineCentre( L ), stall: 0, turn };
+		L.braced = false;
 		this.setMode( L.squads, MODE.SHOVE );
 		// same centre, so the squads keep their flow field; with L.push set the line re-forms shields up
 		if ( turn ) this.lineSquads( L.squads, P.turn.a, P.turn.b, this.intel?.pos, L, { keepField: true } );
@@ -799,8 +801,9 @@ export class World {
 	// Cordon lines under pressure, once per intel readback. Officers down (injured) as a share of the line:
 	// ≥ 15 % → close ranks (re-form shorter and deeper over the survivors, again every further 8 %);
 	// ≥ 30 % → the whole line falls back ~25 m away from the crowd (further if they are still close)
-	// and re-forms there, counting from its new strength. Returns [ { type: 'close' | 'retreat', at, label } ].
-	cordonCheck( now ) {
+	// and re-forms there, counting from its new strength. brace: a line standing (not pushing) with most officers in
+	// place raises shields (MODE.BRACE) until it re-forms or moves. Returns [ { type: 'close' | 'retreat' | 'brace', at, label } ].
+	cordonCheck( now, { brace = false } = {} ) {
 
 		const I = this.intel;
 		if ( ! I ) return [];
@@ -854,6 +857,12 @@ export class World {
 				L.closed = lost;
 				this.lineSquads( L.squads, [ mx - dx * h, my - dy * h ], [ mx + dx * h, my + dy * h ], pos, L );
 				out.push( { type: 'close', at: [ mx, my ], label } );
+
+			} else if ( brace && ! L.push && ! L.braced && this.lineFormed( L ) ) {
+
+				L.braced = true;
+				this.setMode( L.squads, MODE.BRACE );
+				out.push( { type: 'brace', at: [ mx, my ], label } );
 
 			}
 

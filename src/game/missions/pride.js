@@ -567,7 +567,7 @@ export class PrideMission extends Mission {
 
 		for ( const s of this.world.groupsOf( FACTION.POLICE ) ) {
 
-			if ( s.kind === 'squad' && s.mode === MODE.FORMATION && ! s.snatch && s.center && s.anchor && near( s.center, s.anchor, 25 ) ) this.world.setLayer( s, this.postLayer );
+			if ( s.kind === 'squad' && ( s.mode === MODE.FORMATION || s.mode === MODE.BRACE ) && ! s.snatch && s.center && s.anchor && near( s.center, s.anchor, 25 ) ) this.world.setLayer( s, this.postLayer );
 
 		}
 

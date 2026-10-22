@@ -40,8 +40,9 @@ export const MODE = {
 	MARCH: 0, HOLD: 1, RIOT: 2, DISPERSE: 3, SIT: 4, SHIELD: 5, PUSH: 6, STORM: 7, PANIC: 9, // protesters / counter-protesters
 	// SHIELD: a march behind locked arms and banners · PUSH / STORM: fired-up marches that lean on / break police lines
 	// PANIC: civilians or bystanders running for their lives (their flow field + away from u.panicAt), nobody fights
-	MOVE: 0, FORMATION: 1, CHARGE: 2, ARREST: 3, SHOVE: 8, SNATCH: 10, // police
+	MOVE: 0, FORMATION: 1, CHARGE: 2, ARREST: 3, SHOVE: 8, SNATCH: 10, BRACE: 11, // police
 	// SHOVE: a cordon advancing shields up (World.shieldPush): a formation that pushes crowds back hard and takes fewer blows
+	// BRACE: a cordon standing shields up once formed (World.cordonCheck): as firm as SHOVE, without advancing
 	// SNATCH: a squad after a group leader (World.snatch): runs at them, shoulders others aside, detains only leaders
 };
 const SHOVE_K = 2.2, SHOVE_HOLD = 0.5, SHOVE_ARMOUR = 0.5; // shield push: × push on civilians · × push back on officers · × blows taken
@@ -566,8 +567,9 @@ export class Crowd {
 			const push = isCiv.and( mode.equal( MODE.PUSH ) );
 			const storm = isCiv.and( mode.equal( MODE.STORM ) );
 			const leaving = isCiv.and( resolve.lessThan( 0 ) ).and( isSitter.not() );
-			// police holding (or advancing in) a formation: officers seek their own slot round the group anchor
-			const shove = isPol.and( mode.equal( MODE.SHOVE ) );
+			// police holding (or advancing in) a formation: officers seek their own slot round the group anchor; shields up
+			// (a line advancing or braced) it is firmer
+			const shove = isPol.and( mode.equal( MODE.SHOVE ).or( mode.equal( MODE.BRACE ) ) );
 			const formation = isPol.and( mode.equal( MODE.FORMATION ) ).or( shove );
 			const snatch = isPol.and( mode.equal( MODE.SNATCH ) );
 			const panic = isPol.not().and( mode.equal( MODE.PANIC ) );
@@ -837,7 +839,7 @@ export class Crowd {
 										// a shield push drives the crowd back and leans into it
 										// a snatch squad shoulders everyone but leaders aside on its way in
 										const shoveBy = select( jMode.equal( MODE.STORM ), 3.0, select( jMode.equal( MODE.PUSH ), 1.6, 1.0 ) ).mul( select( shove.or( snatch ), SHOVE_HOLD, 1.0 ) );
-										const polK = select( jMode.equal( MODE.SHOVE ), SHOVE_K, select( jMode.equal( MODE.SNATCH ).and( isLeader.not() ), SNATCH_K, 1.0 ) );
+										const polK = select( jMode.equal( MODE.SHOVE ).or( jMode.equal( MODE.BRACE ) ), SHOVE_K, select( jMode.equal( MODE.SNATCH ).and( isLeader.not() ), SNATCH_K, 1.0 ) );
 										const mass = select( isCiv.and( jPol ), u.policeMass.mul( lean ).mul( polK ), select( isPol.and( jCiv ), shoveBy.div( u.policeMass ), part ) )
 											.mul( select( isSitter, 0.35, 1.0 ) );
 										force.addAssign( n.mul( overlap.mul( K_REP ).mul( mass ) ) );
@@ -865,7 +867,7 @@ export class Crowd {
 											const isSn = jga.w.equal( MODE.SNATCH );
 											const pAgg = gB.element( uint( sj.y ) ).w.add( sj.z );
 											// a line that is holding pushes with shields and strikes those who fight it
-											const restraint = select( jga.w.equal( MODE.FORMATION ).or( jga.w.equal( MODE.SHOVE ) ), mix( u.holdRestraint, float( 1 ), smoothstep( 0.5, 0.9, ag ) ), float( 1 ) );
+											const restraint = select( jga.w.equal( MODE.FORMATION ).or( jga.w.equal( MODE.SHOVE ) ).or( jga.w.equal( MODE.BRACE ) ), mix( u.holdRestraint, float( 1 ), smoothstep( 0.5, 0.9, ag ) ), float( 1 ) );
 											dmgPolice.addAssign( u.policeForce.mul( pAgg ).mul( select( isArr, 0.25, select( isSn, SNATCH_FORCE, 1.0 ) ) ).mul( restraint ).mul( select( shield, 0.6, 1.0 ) ) );
 											// only arrest squads detain anyone they hold, snatch squads only leaders; other officers in contact only
 											// grab those who fight
