@@ -7,9 +7,19 @@ import { mapTarget, SpatialHost } from './spatial.js';
 import { advanceBuilding } from './building.js';
 import { ResourceHost } from './resources.js';
 import { CommandHost } from './commands.js';
+import { advanceClash } from './clash.js';
+import { ConvoyHost } from './convoys.js';
 
 let nextRun = 1;
 const terminal = new Set( [ 'finished', 'failed', 'disposed' ] );
+const randomSeed = () => {
+
+	const value = new Uint32Array( 1 );
+	if ( globalThis.crypto?.getRandomValues ) globalThis.crypto.getRandomValues( value );
+	else value[ 0 ] = Date.now() >>> 0;
+	return value[ 0 ] || 0x6d2b79f5;
+
+};
 
 export function formatTime( seconds ) {
 
@@ -31,9 +41,12 @@ export class ScenarioRuntime {
 		this.state = 'created';
 		this.time = 0;
 		this.step = 0;
+		this.clashPressure = 0;
 		this.result = null;
 		this.error = null;
 		this.run = nextRun ++;
+		this.randomState = this.definition.seed ?? randomSeed();
+		if ( ! this.randomState ) this.randomState = 0x6d2b79f5;
 		this.locations = new Map();
 		this.actors = new Map();
 		this.operations = new Set();
@@ -50,6 +63,7 @@ export class ScenarioRuntime {
 		this.buildingState = null;
 		this.resources = new ResourceHost( this, this.definition.resources );
 		this.commands = new CommandHost( this );
+		this.convoys = new ConvoyHost( this );
 		this.events = [];
 		this.dispatching = false;
 		this.nextEvent = 1;
@@ -57,7 +71,12 @@ export class ScenarioRuntime {
 		this.context = Object.freeze( {
 			resources: Object.freeze( { get: ( id ) => this.resources.get( id ),
 				list: () => Object.freeze( [ ...this.resources.records.keys() ].map( ( id ) => this.resources.get( id ) ) ) } ),
+			crowd: Object.freeze( {
+				setMode: ( actor, mode ) => this.setCrowdMode( actor, mode ),
+				nudge: ( actor, options ) => this.nudgeCrowd( actor, options ),
+			} ),
 			commands: this.commands.context(),
+			convoys: this.convoys.context(),
 			people: this.identity.peopleContext(),
 			protected: this.identity.context(),
 			vehicles: this.transport.context(),
@@ -105,6 +124,7 @@ export class ScenarioRuntime {
 				},
 			} ),
 			get time() { return runtime.time; },
+			random: () => this.random(),
 			get metrics() { return runtime.metrics(); },
 			get observation() { return runtime.observation; },
 		} );
@@ -122,6 +142,50 @@ export class ScenarioRuntime {
 		if ( Array.isArray( reference ) ) return point( reference, 'location' );
 		check( typeof reference === 'string' && this.locations.has( reference ), 'location', `unknown location '${reference}'` );
 		return this.locations.get( reference );
+
+	}
+
+	random() {
+
+		let value = this.randomState;
+		value ^= value << 13; value ^= value >>> 17; value ^= value << 5;
+		this.randomState = value >>> 0;
+		return this.randomState / 0x100000000;
+
+	}
+
+	crowdRecord( value ) {
+
+		const handle = typeof value === 'string' ? this.context.actors.resolve( value ) : value;
+		const record = this.actors.get( handle?.id );
+		check( record?.handle === handle && handle.kind === 'crowd' && Array.isArray( record.backend ), 'crowd.actor', 'must be an allocated crowd actor' );
+		return record;
+
+	}
+
+	setCrowdMode( value, mode ) {
+
+		this.writable();
+		check( [ 'hold', 'march', 'riot' ].includes( mode ), 'crowd.mode', 'must be hold, march or riot' );
+		const actor = this.crowdRecord( value ), result = this.adapter.setCrowdMode( actor.backend, mode );
+		if ( result.status === 'rejected' ) return Object.freeze( result );
+		this.event( 'crowd.mode-changed', { actor: actor.handle, mode } );
+		return Object.freeze( { status: 'completed', value: Object.freeze( { actor: actor.handle, mode } ) } );
+
+	}
+
+	nudgeCrowd( value, options ) {
+
+		this.writable();
+		fields( options, [ 'agitation', 'resolve' ], 'crowd.nudge' );
+		const agitation = options.agitation ?? 0, resolve = options.resolve ?? 0;
+		check( Number.isFinite( agitation ) && agitation >= - 1 && agitation <= 1, 'crowd.nudge.agitation', 'must be from -1 to 1' );
+		check( Number.isFinite( resolve ) && resolve >= - 2 && resolve <= 2, 'crowd.nudge.resolve', 'must be from -2 to 2' );
+		check( agitation !== 0 || resolve !== 0, 'crowd.nudge', 'must change agitation or resolve' );
+		const actor = this.crowdRecord( value ), result = this.adapter.nudgeCrowd( actor.backend, { agitation, resolve } );
+		if ( result.status === 'rejected' ) return Object.freeze( result );
+		this.event( 'crowd.nudged', { actor: actor.handle, people: result.people, agitation, resolve } );
+		return Object.freeze( { status: 'completed', value: Object.freeze( { actor: actor.handle, people: result.people } ) } );
 
 	}
 
@@ -171,6 +235,7 @@ export class ScenarioRuntime {
 					blocked: Object.freeze( target.exits.map( () => false ) ), facade: 0 } );
 
 			}
+			if ( this.definition.objectives[ 0 ].kind === 'escort-convoy' ) this.convoys.resolve( this.definition.objectives[ 0 ].convoy );
 			this.behaviors.setup();
 			this.state = 'briefing';
 
@@ -400,6 +465,40 @@ export class ScenarioRuntime {
 
 	}
 
+	playerAction( action ) {
+
+		if ( ! [ 'running', 'paused' ].includes( this.state ) ) return;
+		check( action && typeof action === 'object' && typeof action.type === 'string' && Array.isArray( action.selection ), 'action', 'must be a semantic player action' );
+		this.behaviors.dispatch( 'onAction', action );
+
+	}
+
+	showCoach( owner, card ) {
+
+		check( owner.state === 'starting' || owner.state === 'active', `behavior.${owner.id}.coach`, 'owner is stopped' );
+		if ( card === null ) { this.clearCoach( owner ); return; }
+		fields( card, [ 'chapter', 'text', 'step', 'total', 'spot', 'next', 'onNext', 'onSkip' ], 'coach' );
+		check( typeof card.chapter === 'string' && card.chapter.trim() !== '' && card.chapter.length <= 80, 'coach.chapter', 'must be non-empty text up to 80 characters' );
+		check( typeof card.text === 'string' && card.text.trim() !== '' && card.text.length <= 500, 'coach.text', 'must be non-empty text up to 500 characters' );
+		check( Number.isInteger( card.step ) && card.step > 0 && Number.isInteger( card.total ) && card.total >= card.step,
+			'coach.step', 'must be a positive step within the total' );
+		check( card.spot === undefined || ( typeof card.spot === 'string' && /^[a-z][a-zA-Z0-9_-]{0,39}$/.test( card.spot ) ), 'coach.spot', 'must be a HUD element ID' );
+		check( card.next === undefined || typeof card.next === 'boolean', 'coach.next', 'must be a boolean' );
+		check( typeof card.onNext === 'function', 'coach.onNext', 'must be a function' );
+		check( card.onSkip === undefined || typeof card.onSkip === 'function', 'coach.onSkip', 'must be a function' );
+		this.coachOwner = owner;
+		this.adapter.coach( Object.freeze( { ...card } ) );
+
+	}
+
+	clearCoach( owner ) {
+
+		if ( this.coachOwner !== owner ) return;
+		this.coachOwner = null;
+		this.adapter.coach( null );
+
+	}
+
 	actor( handle ) {
 
 		check( handle?.run === this.run && this.actors.get( handle.id )?.handle === handle, 'actors.get', 'unknown or foreign actor handle' );
@@ -410,7 +509,9 @@ export class ScenarioRuntime {
 	metrics() {
 
 		const raw = this.adapter.readMetrics?.() ?? { opinion: 60, counters: {} };
+		const escalation = raw.escalation ?? 0;
 		check( raw && typeof raw === 'object' && Number.isFinite( raw.opinion ) && raw.opinion >= 0 && raw.opinion <= 100
+			&& Number.isInteger( escalation ) && escalation >= 0 && escalation <= 4
 			&& raw.counters && typeof raw.counters === 'object', 'metrics', 'adapter returned invalid semantic metrics' );
 		const counters = Object.fromEntries( [ 'injuriesByPolice', 'otherInjuries', 'officersInjured', 'arrests', 'sitterArrests', 'peopleGone', 'gasUsed', 'shotsFired' ].map( ( key ) => {
 
@@ -419,7 +520,38 @@ export class ScenarioRuntime {
 			return [ key, value ];
 
 		} ) );
-		return Object.freeze( { opinion: raw.opinion, counters: Object.freeze( counters ) } );
+		const clashContacts = raw.clashContacts ?? 0;
+		check( Number.isInteger( clashContacts ) && clashContacts >= 0, 'metrics.clashContacts', 'must be a non-negative integer' );
+		return Object.freeze( { opinion: raw.opinion, escalation, clashContacts, clashPressure: this.clashPressure, counters: Object.freeze( counters ) } );
+
+	}
+
+	phase() {
+
+		const objective = this.definition.objectives[ 0 ];
+		const fallback = `${formatTime( objective.seconds - this.time )} left`;
+		if ( ! this.definition.phase ) return fallback;
+		try {
+
+			const value = this.definition.phase( Object.freeze( { time: this.time, metrics: this.metrics(), objective: objective.kind } ) );
+			check( typeof value === 'string' && value.trim() !== '' && value.length <= 160 && ! value.then,
+				'scenario.phase', 'must return synchronous non-empty text of at most 160 characters' );
+			return value;
+
+		} catch ( error ) { this.fail( new Error( `scenario.phase: ${error.message}`, { cause: error } ) ); return fallback; }
+
+	}
+
+	indicatorObjectives() {
+
+		const { counters } = this.metrics();
+		return this.definition.indicators.map( ( indicator ) => {
+
+			const value = counters[ indicator.counter ], bad = value > indicator.maximum;
+			return { label: indicator.label, value: Math.min( 1, value / indicator.maximum ), text: `${Math.round( value )}`,
+				state: bad ? 'bad' : indicator.warnAt !== undefined && value > indicator.warnAt ? 'warn' : 'ok', invert: true };
+
+		} );
 
 	}
 
@@ -492,13 +624,18 @@ export class ScenarioRuntime {
 		if ( this.state !== 'running' ) return;
 		this.time += dt;
 		this.step ++;
+		try { this.convoys.update( dt ); } catch ( error ) { this.fail( error ); return; }
+		const objective = this.definition.objectives[ 0 ];
+		if ( objective.kind === 'prevent-clash' ) this.clashPressure = advanceClash( this.clashPressure, this.metrics().clashContacts, dt );
 		try { this.behaviors.update( dt ); } catch ( error ) { this.fail( error ); return; }
 		if ( this.state !== 'running' ) return;
-		const objective = this.definition.objectives[ 0 ];
 		if ( objective.kind === 'hold-building' ) {
 
 			const measured = this.spatial.measureBuilding( objective.target, objective.exitAt );
 			if ( measured ) this.buildingState = advanceBuilding( this.buildingState, measured, dt );
+			const outcome = this.evaluateOutcomes();
+			if ( this.state !== 'running' ) return;
+			if ( outcome ) { this.finish( outcome.win, outcome.reason ); return; }
 			const failure = this.buildingState.breach >= 1 || this.buildingState.evacuation >= 1;
 			if ( ! failure && this.time + 1e-9 < objective.seconds ) return;
 			if ( ! measured ) { this.fail( new Error( 'objective.target: complete building observation unavailable at deadline' ) ); return; }
@@ -506,6 +643,28 @@ export class ScenarioRuntime {
 			const target = this.spatial.target( objective.target );
 			this.finish( ! failure, failure ? this.buildingState.breach >= 1 ? `Protesters forced their way into ${target.name}.`
 				: 'Every exit was blocked - the evacuation could not proceed.' : objective.reason );
+			return;
+
+		}
+		const outcome = this.evaluateOutcomes();
+		if ( this.state !== 'running' ) return;
+		if ( outcome ) { this.finish( outcome.win, outcome.reason ); return; }
+		if ( objective.kind === 'escort-convoy' ) {
+
+			const convoy = this.convoys.get( objective.convoy );
+			if ( convoy.integrity <= 0 ) { this.finish( false, objective.integrityReason ); return; }
+			if ( convoy.blockedFor > objective.maxBlocked ) { this.finish( false, objective.blockedReason ); return; }
+			if ( convoy.arrived ) { this.finish( true, objective.reason ); return; }
+			if ( this.time + 1e-9 >= objective.seconds ) { this.time = Math.max( this.time, objective.seconds ); this.finish( false, objective.timeoutReason ); }
+			return;
+
+		}
+		if ( objective.kind === 'prevent-clash' ) {
+
+			if ( this.clashPressure >= 1 ) { this.finish( false, objective.failureReason ); return; }
+			if ( this.time + 1e-9 < objective.seconds ) return;
+			this.time = Math.max( this.time, objective.seconds );
+			this.finish( true, objective.reason );
 			return;
 
 		}
@@ -531,6 +690,32 @@ export class ScenarioRuntime {
 
 	}
 
+	evaluateOutcomes() {
+
+		if ( ! this.definition.outcomes.length ) return null;
+		const objective = this.definition.objectives[ 0 ];
+		const context = Object.freeze( { time: this.time, metrics: this.metrics(), objective,
+			building: this.buildingState ? Object.freeze( { ...this.buildingState, blocked: Object.freeze( [ ...this.buildingState.blocked ] ) } ) : null,
+			observation: this.observation } );
+		for ( const rule of this.definition.outcomes ) try {
+
+			const outcome = rule.evaluate( context );
+			if ( outcome == null ) continue;
+			fields( outcome, [ 'win', 'reason' ], `scenario.outcomes.${rule.id}` );
+			check( typeof outcome.win === 'boolean' && typeof outcome.reason === 'string' && outcome.reason.trim() !== '',
+				`scenario.outcomes.${rule.id}`, 'must return win and a non-empty reason' );
+			return Object.freeze( { win: outcome.win, reason: outcome.reason } );
+
+		} catch ( error ) {
+
+			this.fail( new Error( `scenario.outcomes.${rule.id}: ${error.message}`, { cause: error } ) );
+			return null;
+
+		}
+		return null;
+
+	}
+
 	finish( win, reason ) {
 
 		if ( terminal.has( this.state ) ) return;
@@ -550,6 +735,7 @@ export class ScenarioRuntime {
 		} catch ( error ) { this.fail( new Error( `scenario.score: ${error.message}`, { cause: error } ) ); return; }
 		this.state = 'finished';
 		this.commands.stopAll(); this.resources.dispose();
+		this.convoys.dispose();
 		this.result = Object.freeze( { win: Boolean( win ), reason, stars: score.stars, lines: Object.freeze( score.lines ) } );
 		this.behaviors.stopAll( 'finished' );
 		this.movement.stopAll();
@@ -571,6 +757,24 @@ export class ScenarioRuntime {
 				{ label: 'Facade breach', value: state.breach, text: `${state.facade} at the doors`, state: state.breach > 0.6 ? 'bad' : state.breach > 0.25 ? 'warn' : 'ok', invert: true },
 				{ label: `Exits clear ${clear}/${state.blocked.length}`, value: state.evacuation, text: state.evacuation > 0 ? `evac ${Math.round( state.evacuation * 100 )}%` : 'open',
 					state: state.evacuation > 0.5 ? 'bad' : clear < state.blocked.length ? 'warn' : 'ok', invert: true },
+				...this.indicatorObjectives(),
+			];
+
+		}
+		if ( objective.kind === 'prevent-clash' ) return [
+			{ label: objective.label, value: Math.min( 1, this.time / objective.seconds ), text: formatTime( objective.seconds - this.time ), state: this.result ? this.result.win ? 'done' : 'bad' : 'ok' },
+			{ label: 'Clash', value: this.clashPressure, text: `${Math.round( this.clashPressure * 100 )}%`,
+				state: this.clashPressure > 0.6 ? 'bad' : this.clashPressure > 0.2 ? 'warn' : 'ok', invert: true },
+			...this.indicatorObjectives(),
+		];
+		if ( objective.kind === 'escort-convoy' ) {
+
+			const convoy = this.convoys.get( objective.convoy );
+			return [
+				{ label: 'Convoy reaches the Assembly', value: convoy.progress, text: `${Math.round( convoy.progress * 100 )}%`, state: convoy.arrived ? 'done' : convoy.speed < 0.5 && convoy.moving ? 'warn' : 'ok' },
+				{ label: 'VIP car integrity', value: convoy.integrity, text: `${Math.round( convoy.integrity * 100 )}%`, state: convoy.integrity < 0.35 ? 'bad' : convoy.integrity < 0.7 ? 'warn' : 'ok' },
+				{ label: `★ Arrive within ${formatTime( 360 )} of departure`, value: Math.min( 1, this.time / 360 ), text: formatTime( this.time ), state: this.time > 360 ? 'bad' : 'ok', invert: true },
+				...this.indicatorObjectives(),
 			];
 
 		}
@@ -578,7 +782,7 @@ export class ScenarioRuntime {
 		const bad = entity && [ 'down', 'captured', 'dead' ].includes( entity.state );
 		return [ { label: objective.label, value: Math.min( 1, this.time / objective.seconds ),
 			text: entity ? `${entity.state.toUpperCase()} · ${formatTime( objective.seconds - this.time )}` : formatTime( objective.seconds - this.time ),
-			state: this.result ? ( this.result.win ? 'done' : 'bad' ) : bad ? 'bad' : 'ok' } ];
+			state: this.result ? ( this.result.win ? 'done' : 'bad' ) : bad ? 'bad' : 'ok' }, ...this.indicatorObjectives() ];
 
 	}
 
@@ -588,6 +792,7 @@ export class ScenarioRuntime {
 		this.state = 'failed';
 		this.error = error;
 		this.commands.stopAll(); this.resources.dispose();
+		this.convoys.dispose();
 		this.behaviors.stopAll( 'failed' );
 		this.movement.stopAll();
 		this.transport.dispose();
@@ -604,6 +809,7 @@ export class ScenarioRuntime {
 		if ( this.state === 'disposed' ) return;
 		this.state = 'disposed';
 		this.commands.stopAll(); this.resources.dispose();
+		this.convoys.dispose();
 		this.behaviors.stopAll( 'disposed' );
 		this.movement.stopAll();
 		this.transport.dispose();

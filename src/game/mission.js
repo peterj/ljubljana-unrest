@@ -373,14 +373,14 @@ export class Mission {
 
 	// Last resort. Abstract but heavy: casualties around the selected squads, mass panic, rage among the
 	// radicals, a collapse in public opinion, and the mission result is capped at one star.
-	openFire() {
+	openFire( squads = this.game.squads ) {
 
 		const I = this.world.intel;
-		if ( ! I || ! this.game.squads.length ) return;
-		this.game.sound?.firearms( this.game.squads.find( ( q ) => q.center )?.center ?? null );
+		if ( ! I || ! squads.length ) return;
+		this.game.sound?.firearms( squads.find( ( q ) => q.center )?.center ?? null );
 		const civ = ( f ) => f === FACTION.PROTESTER || f === FACTION.COUNTER || f === FACTION.BYSTANDER;
 		let hit = 0;
-		for ( const sq of this.game.squads ) {
+		for ( const sq of squads ) {
 
 			if ( ! sq.center ) continue;
 			const [ cx, cy ] = sq.center;
@@ -414,7 +414,7 @@ export class Mission {
 		this.counters.shot = ( this.counters.shot ?? 0 ) + hit;
 		this.escalate( 4, 'FIREARMS' );
 		this.nudgeOpinion( - 25 - hit, 'shots fired' );
-		this.event( `Shots fired — ${hit} people down. The crowd is panicking.`, 'bad', this.game.squads[ 0 ].center );
+		this.event( `Shots fired — ${hit} people down. The crowd is panicking.`, 'bad', squads[ 0 ].center );
 
 	}
 

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { World } from '../src/sim/world.js';
 import { Crowd, FACTION, MODE, MAX_EDITS } from '../src/sim/crowd.js';
 import { ScenarioEngine } from '../src/game/scenarios/engine.js';
+import { Mission } from '../src/game/mission.js';
 
 function worldFixture() {
 
@@ -282,9 +283,23 @@ test( 'score adapter exposes only immutable semantic opinion and counters', () =
 	const mission = { opinion: 47.5, counters: { injByPolice: 3, injOther: 2, injPolice: 1, arrested: 4,
 		arrestedSitters: 0, gone: 5, gas: 2, shot: 0 } };
 	const metrics = new ScenarioEngine( mission ).readMetrics();
-	assert.deepEqual( metrics, { opinion: 47.5, counters: { injuriesByPolice: 3, otherInjuries: 2, officersInjured: 1,
+	assert.deepEqual( metrics, { opinion: 47.5, escalation: 0, clashContacts: 0, counters: { injuriesByPolice: 3, otherInjuries: 2, officersInjured: 1,
 		arrests: 4, sitterArrests: 0, peopleGone: 5, gasUsed: 2, shotsFired: 0 } } );
 	assert.equal( Object.isFrozen( metrics ), true ); assert.equal( Object.isFrozen( metrics.counters ), true );
+
+} );
+
+test( 'crowd control maps semantic modes and agitation deltas without exposing member indices', () => {
+
+	const groups = [ { id: 4, faction: FACTION.PROTESTER, members: [ 10, 11, 12 ] } ], modes = [], nudges = [];
+	const world = { setMode: ( selected, mode ) => modes.push( { selected, mode } ), intel: { faction: ( member ) => member === 12 ? - 2 : 0 } };
+	const crowd = { nudge: ( member, agitation, resolve ) => nudges.push( { member, agitation, resolve } ) };
+	const adapter = new ScenarioEngine( { world, crowd } );
+	assert.equal( adapter.setCrowdMode( groups, 'riot' ).status, 'completed' );
+	assert.equal( modes[ 0 ].mode, MODE.RIOT ); assert.deepEqual( modes[ 0 ].selected, groups );
+	assert.deepEqual( adapter.nudgeCrowd( groups, { agitation: 0.2, resolve: - 0.1 } ), { status: 'completed', people: 2 } );
+	assert.deepEqual( nudges, [ { member: 10, agitation: 0.2, resolve: - 0.1 }, { member: 11, agitation: 0.2, resolve: - 0.1 } ] );
+	assert.equal( adapter.setCrowdMode( [ { id: 5, faction: FACTION.POLICE, members: [] } ], 'riot' ).code, 'FACTION' );
 
 } );
 
@@ -304,7 +319,7 @@ test( 'bystander allocation uses shared wander fields and releases partial group
 			return [ group ];
 
 		} };
-	const adapter = new ScenarioEngine( { world, crowd, city: { bounds: [ - 1000, - 1000, 1000, 1000 ] }, runtime: { run: 7 }, game: { selected: [] } } );
+	const adapter = new ScenarioEngine( { world, crowd, city: { bounds: [ - 1000, - 1000, 1000, 1000 ] }, runtime: { run: 7, random: () => 0.5 }, game: { selected: [] } } );
 	const options = { id: 'bystanders', people: 13, groupSize: 12, spread: 60, destinations: [ [ 1, 2 ], [ 3, 4 ] ] };
 	const allocated = await adapter.allocateBystanders( options, new AbortController().signal );
 	assert.equal( allocated.length, 2 ); assert.deepEqual( allocated.map( ( group ) => group.members.length ), [ 12, 1 ] );
@@ -316,5 +331,63 @@ test( 'bystander allocation uses shared wander fields and releases partial group
 	await assert.rejects( adapter.allocateBystanders( options, controller.signal ), /cancel fixture/ );
 	assert.equal( groups[ 0 ].members.length, 0 ); assert.equal( removedPeople.length, 12 );
 	assert.equal( releasedLayers.length, 1 ); assert.ok( [ 1, 2 ].includes( releasedLayers[ 0 ] ) );
+
+} );
+
+test( 'snatch pursuit results correlate to their applied operation and other control cancels the task', () => {
+
+	const squad = Object.freeze( { id: 'guard', kind: 'squad', run: 1 } ), target = {}, person = Object.freeze( { id: 'leader', kind: 'person', run: 1 } );
+	const events = [], returned = [];
+	const group = {};
+	const adapter = new ScenarioEngine( { world: { endSnatch: ( groups ) => returned.push( groups ) },
+		runtime: { event: ( type, value ) => events.push( { type, ...value } ) } } );
+	adapter.snatchTasks.set( group, { operation: '1:8', squad, target: person, targetGroup: target } );
+	assert.deepEqual( adapter.snatchOutcome( group, target, 'detained' ), { operation: '1:8', squad, target: person, type: 'snatch.completed', result: 'detained' } );
+	assert.equal( adapter.snatchTasks.size, 0 );
+	adapter.snatchTasks.set( group, { operation: '1:9', squad, target: person, targetGroup: target } );
+	adapter.cancelSnatches( [ group ], 'player movement' );
+	assert.equal( adapter.snatchTasks.size, 0 ); assert.deepEqual( returned, [ [ group ] ] );
+	assert.deepEqual( events, [ { type: 'snatch.cancelled', operation: '1:9', squad, target: person, reason: 'player movement' } ] );
+
+} );
+
+test( 'base firearms effect accepts a captured squad list and keeps default squad selection', () => {
+
+	const st = new Float32Array( 12 ), pos = new Float32Array( 6 );
+	st[ 0 ] = FACTION.PROTESTER; st[ 4 ] = FACTION.BYSTANDER; st[ 8 ] = FACTION.PROTESTER;
+	pos.set( [ 4, 0, 1000, 0, 1000, 0 ] );
+	const hit = [], events = [], selected = { center: [ 0, 0 ] }, unselected = { center: [ 1000, 0 ] };
+	const mission = { game: { squads: [ selected, unselected ], sound: { firearms() {} } }, world: { intel: { st, pos } }, crowd: {
+		count: 3, nudge() {}, setFaction( index, faction ) { hit.push( [ index, faction ] ); },
+	}, counters: { injByPolice: 0, injOther: 0, injPolice: 0, arrested: 0, arrestedSitters: 0, gone: 0, gas: 0 },
+		escalate( value ) { mission.escalation = value; }, nudgeOpinion( value ) { mission.opinionDelta = value; }, event( text ) { events.push( text ); } };
+	Mission.prototype.openFire.call( mission, [ selected ] );
+	assert.deepEqual( hit.map( ( entry ) => entry[ 0 ] ), [ 0 ] );
+	assert.equal( mission.counters.shot, 1 ); assert.equal( mission.escalation, 4 );
+	assert.equal( mission.opinionDelta, - 26 ); assert.match( events[ 0 ], /1 people down/ );
+	hit.length = 0; mission.counters.shot = 0;
+	Mission.prototype.openFire.call( mission );
+	assert.ok( hit.some( ( entry ) => entry[ 0 ] === 0 ) );
+	assert.ok( hit.some( ( entry ) => entry[ 0 ] > 0 ) );
+	assert.equal( mission.counters.shot, hit.length );
+
+} );
+
+test( 'SDK snatch applies native leader pursuit and reports its later factual outcome', () => {
+
+	const squad = { id: 1, members: [ 1 ], center: [ 0, 0 ] }, targetGroup = { id: 2, leaderPos: [ 40, 5 ], leaderState: 'active' };
+	const squadHandle = Object.freeze( { id: 'guard', kind: 'squad', run: 1 } ), person = Object.freeze( { id: 'leader', kind: 'person', run: 1 } );
+	const actorRecord = { handle: squadHandle, backend: [ squad ] }, calls = [];
+	const targetRecord = { actor: { id: 'march' }, backend: { group: targetGroup }, sample: { status: 'active', leader: true, identified: true } };
+	const runtime = { run: 1, actors: new Map( [ [ squadHandle.id, actorRecord ] ] ),
+		identity: { personRecord: () => targetRecord }, event: ( type, value ) => calls.push( { type, ...value } ) };
+	const world = { intel: { faction: () => FACTION.POLICE }, snatch( groups, target, time ) { calls.push( { type: 'native-snatch', groups, target, time } ); groups[ 0 ].snatch = target; },
+		endSnatch() {}, setMode() {} };
+	const adapter = new ScenarioEngine( { world, runtime, t: 12 } ), request = { id: 'snatch', operation: '1:4', source: 'player', at: [ 40, 5 ], target: { person, actor: targetRecord.actor } };
+	const result = adapter.applyCommand( request, [ [ squad ] ], { groups: [ squad ], target: request.target, applied: false }, () => true );
+	assert.equal( calls[ 0 ].type, 'native-snatch' ); assert.equal( calls[ 0 ].time, 12 );
+	assert.equal( result.status, 'completed' ); assert.deepEqual( result.value.affected, [ squadHandle ] );
+	assert.deepEqual( adapter.snatchOutcome( squad, targetGroup, 'detained' ), { operation: '1:4', squad: squadHandle,
+		target: person, type: 'snatch.completed', result: 'detained' } );
 
 } );

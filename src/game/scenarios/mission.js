@@ -17,6 +17,7 @@ export function scenarioMission( value ) {
 		static goals = definition.goals;
 		static tips = definition.tips;
 		static menu = definition.menu;
+		static sdkScenario = true;
 
 		constructor( game ) {
 
@@ -116,12 +117,12 @@ export function scenarioMission( value ) {
 
 		}
 
-		executeCommand( id, x, y ) {
+		executeCommand( id, x, y, source = 'player' ) {
 
 			if ( ! [ 'running', 'paused' ].includes( this.runtime.state ) ) return;
 			const command = this.runtime.commands.list().find( ( entry ) => entry.id === id );
 			const operation = this.runtime.commands.execute( null, id, { at: [ x, y ],
-				selection: command.needsSelection ? this.selectionHandles( command.forCars ? this.game.cars : this.game.squads, command.forCars ? 'vehicle' : 'squad' ) : [] }, 'player' );
+				selection: command.needsSelection ? this.selectionHandles( command.forCars ? this.game.cars : this.game.squads, command.forCars ? 'vehicle' : 'squad' ) : [] }, source );
 			operation.settled.then( ( outcome ) => {
 
 				this.escalation = this.runtime.commands.escalation;
@@ -137,7 +138,20 @@ export function scenarioMission( value ) {
 		onCommandBlocked( key ) {
 
 			const command = this.runtime.commands.list().find( ( entry ) => entry.key === key );
-			if ( command ) return this.executeCommand( command.id, this.game.mouse.x, this.game.mouse.y );
+			if ( command && ! command.danger ) return this.executeCommand( command.id, this.game.mouse.x, this.game.mouse.y );
+
+		}
+
+		openFire() {
+
+			return this.executeCommand( 'firearms', this.game.mouse.x, this.game.mouse.y, 'confirmed-player' );
+
+		}
+
+		onSnatchOutcome( group, target, result ) {
+
+			const event = this.runtime.adapter.snatchOutcome( group, target, result );
+			if ( event ) this.runtime.event( event.type, event );
 
 		}
 
@@ -159,6 +173,18 @@ export function scenarioMission( value ) {
 		onAction( action ) {
 
 			if ( action.type === 'pause' ) this.runtime.pause( action.paused );
+			const rawSelection = action.units ?? this.game.selected;
+			const selection = [ ...this.selectionHandles( rawSelection ), ...this.selectionHandles( rawSelection, 'vehicle' ) ];
+			const safe = { type: action.type, selection: Object.freeze( selection ) };
+			for ( const key of [ 'how', 'key', 'paused', 'speed', 'muted' ] ) if ( action[ key ] !== undefined ) safe[ key ] = action[ key ];
+			for ( const key of [ 'at', 'a' ] ) if ( action[ key ] ) safe[ key === 'a' ? 'line' : key ] = Object.freeze( [ ...action[ key ] ] );
+			if ( action.car ) {
+
+				const vehicle = [ ...this.runtime.actors.values() ].find( ( record ) => record.handle.kind === 'vehicle' && record.backend === action.car );
+				if ( vehicle ) safe.vehicle = vehicle.handle;
+
+			}
+			this.runtime.playerAction( Object.freeze( safe ) );
 
 		}
 
@@ -168,16 +194,18 @@ export function scenarioMission( value ) {
 				{ key: 'l', label: 'Cordon line', needsSel: true, run: () => this.game.drawLine() },
 				...this.runtime.commands.list().map( ( command ) => ( { key: command.key, label: command.label,
 					needsSel: command.needsSelection, resource: command.resource, forCars: command.forCars, forCordon: command.id === 'shield-push', aim: command.aim,
+					danger: command.danger,
 					desc: command.id === 'reinforce' ? 'Dispatch a fresh squad from the nearest police station to this point'
 						: command.id === 'gas' ? 'Deploy a tear gas cloud at this point' : undefined,
-					run: command.immediate ? () => this.executeCommand( command.id, this.game.mouse.x, this.game.mouse.y )
+					run: command.id === 'firearms' ? () => this.game.confirmFirearms()
+						: command.immediate ? () => this.executeCommand( command.id, this.game.mouse.x, this.game.mouse.y )
 						: ( x, y ) => this.executeCommand( command.id, x, y ),
 				} ) ),
 			];
 
 		}
 
-		phase() { return `${formatTime( definition.objectives[ 0 ].seconds - this.runtime.time )} left`; }
+		phase() { return this.runtime.phase(); }
 		objectives() { return this.runtime.objectives(); }
 
 		draw( overlay ) {

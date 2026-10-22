@@ -3,7 +3,7 @@ import test from 'node:test';
 import { advanceBuilding } from '../src/game/scenarios/building.js';
 import { DefendMission } from '../src/game/sdk/templates/defend.js';
 import { SpatialHost, mapTarget } from '../src/game/scenarios/spatial.js';
-import { defineScenario, holdBuilding, target } from '../src/game/scenarios/definition.js';
+import { defineOutcome, defineScenario, holdBuilding, target } from '../src/game/scenarios/definition.js';
 import { ScenarioRuntime } from '../src/game/scenarios/runtime.js';
 
 test( 'building pressure and exit hysteresis match the existing defense template over a full timeline', () => {
@@ -66,9 +66,9 @@ test( 'spatial defense measurements use outer footprints, agitation and prepared
 
 } );
 
-function buildingRuntime( mode, seconds = 720 ) {
+function buildingRuntime( mode, seconds = 720, outcomes = [] ) {
 
-	return new ScenarioRuntime( defineScenario( { id: 'building-proof', title: 'Building', subtitle: 'Proof', brief: 'Proof.',
+	return new ScenarioRuntime( defineScenario( { id: 'building-proof', title: 'Building', subtitle: 'Proof', brief: 'Proof.', outcomes,
 		locations: { building: target( 'Building' ) }, setup: ( ctx ) => ctx.spawn.crowd( { id: 'crowd', at: 'building', people: 100 } ),
 		objectives: [ holdBuilding( { id: 'hold', target: 'building', seconds } ) ] } ), {
 		target: () => ( { name: 'Building', position: [ 0, 0 ], radius: 15, footprints: [ [ - 10, - 10, 10, - 10, 10, 10, - 10, 10 ] ], exits: [ [ 0, 10 ], [ 0, - 10 ] ] } ),
@@ -92,6 +92,21 @@ test( 'building objective loses on breach or blocked exits, wins only for a safe
 		assert.equal( runtime.objectives().length, 3 ); runtime.dispose();
 
 	}
+
+} );
+
+test( 'ordered outcome rules prioritize a facade breach over simultaneous exit failure', async () => {
+
+	const outcomes = [
+		defineOutcome( { id: 'breach-first', evaluate: ( { building } ) => building?.breach >= 1 ? { win: false, reason: 'Breach priority.' } : null } ),
+		defineOutcome( { id: 'exit-second', evaluate: ( { building } ) => building?.evacuation >= 1 ? { win: false, reason: 'Exit priority.' } : null } ),
+	];
+	const runtime = buildingRuntime( 'calm', 60, outcomes );
+	await runtime.setup(); runtime.observe( {} ); await runtime.start();
+	runtime.spatial.measureBuilding = () => ( { facade: 200, exits: [ 40, 40 ] } );
+	runtime.update( 60 );
+	assert.equal( runtime.result.win, false ); assert.equal( runtime.result.reason, 'Breach priority.' );
+	runtime.dispose();
 
 } );
 

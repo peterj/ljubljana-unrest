@@ -83,6 +83,11 @@ export interface SpatialContext {
     walkable(at: string | Point, radius?: number): Point | null;
 }
 
+/** Synchronous civilian crowd mutation; implementation details remain inside the host adapter. */
+export type CrowdMutationResult =
+    | { readonly status: 'completed'; readonly value: { readonly actor: ActorHandle; readonly mode?: 'hold' | 'march' | 'riot'; readonly people?: number } }
+    | { readonly status: 'rejected'; readonly code: 'FACTION' | 'OBSERVATION_UNAVAILABLE' };
+
 /** Finite inventory with game-time cooldown; standard commands currently cost one unit. */
 export interface ResourceOptions {
     /** Positive integer capacity, at most 100000. */
@@ -123,6 +128,12 @@ export interface ResourceObservation {
 export interface ScenarioMetrics {
     /** Current public opinion, clamped from 0 to 100. */
     readonly opinion: number;
+    /** Current force escalation level, from none (0) through firearms (4). */
+    readonly escalation: 0 | 1 | 2 | 3 | 4;
+    /** Per-simulation-step clash contacts from the semantic host statistic. */
+    readonly clashContacts: number;
+    /** Integrated clash pressure for preventClash objectives, clamped to [0,1]. */
+    readonly clashPressure: number;
     /** Cumulative scenario counters from the host's aggregate stats. */
     readonly counters: Readonly<{
         /** People injured by police. */
@@ -156,6 +167,33 @@ export interface ScenarioScoreContext {
     readonly metrics: ScenarioMetrics;
 }
 
+/** Synchronous phase label input; callbacks should be pure and bounded. */
+export interface ScenarioPhaseContext {
+    /** Current game time. */
+    readonly time: number;
+    /** Current semantic counters and opinion. */
+    readonly metrics: ScenarioMetrics;
+    /** Primary objective kind. */
+    readonly objective: Objective['kind'];
+}
+
+/** A concise host-rendered phase string. */
+export type ScenarioPhasePolicy = (context: ScenarioPhaseContext) => string;
+
+/** Additional metric threshold shown as a HUD objective row. */
+export interface MetricIndicator {
+    /** Unique indicator ID. */
+    readonly id: string;
+    /** HUD label, e.g. the injuries objective. */
+    readonly label: string;
+    /** Semantic cumulative metric counter. */
+    readonly counter: keyof ScenarioMetrics['counters'];
+    /** Values above this limit are bad. */
+    readonly maximum: number;
+    /** Optional warning threshold; omitted means no warning state. */
+    readonly warnAt?: number;
+}
+
 /** Validated three-star result and bounded labeled rows shown on the result screen. */
 export interface ScenarioScore {
     /** Integer from zero to three. */
@@ -168,7 +206,7 @@ export interface ScenarioScore {
 export type ScenarioScoring = (context: ScenarioScoreContext) => ScenarioScore;
 
 /** Standard semantic IDs; key bindings are host presentation, not execution IDs. */
-export type PoliceCommandId = 'charge' | 'arrest' | 'snatch' | 'kettle' | 'shield-push' | 'crew' | 'water' | 'gas' | 'reinforce';
+export type PoliceCommandId = 'charge' | 'arrest' | 'snatch' | 'kettle' | 'shield-push' | 'crew' | 'water' | 'gas' | 'reinforce' | 'firearms';
 
 /** Opaque supported command definition returned by policeCommands. */
 export interface PoliceCommandDefinition {
@@ -189,13 +227,15 @@ export interface PoliceCommandInfo extends PoliceCommandDefinition {
     /** True when a captured squad or water-vehicle selection is required. */
     readonly needsSelection: boolean;
     /** Minimum escalation level recorded on application, not on a failed attempt. */
-    readonly escalation: 0 | 1 | 2 | 3;
+    readonly escalation: 0 | 1 | 2 | 3 | 4;
     /** Shield push uses a native hold/release aiming gesture. */
     readonly aim?: true;
     /** Water cannon selects a water-cannon vehicle, not a squad. */
     readonly forCars?: true;
     /** Crew toggle executes immediately for the selected parked patrol vehicle. */
     readonly immediate?: true;
+    /** Open fire is marked dangerous and requires the host confirmation dialog. */
+    readonly danger?: true;
 }
 
 /** Optional resource-backed commands appended to the basic force-order set. */
@@ -208,6 +248,8 @@ export interface PoliceCommandOptions {
     water?: string;
     /** Enable the immediate `u` crew in/out order for selected police-patrol vehicles. */
     crew?: boolean;
+    /** Enable the `o` order; the host requires explicit player confirmation before applying it. */
+    firearms?: boolean;
 }
 
 /** A command captures these handles and destination before asynchronous preparation. */
@@ -239,10 +281,10 @@ export interface CommandReceipt {
 }
 
 /** Expected command rejection does not fail the scenario or spend a reserved resource. */
-export type CommandRejection = 'SELECTION_REQUIRED' | 'INVALID_SELECTION' | 'TARGET_NOT_FOUND' | 'TARGET_UNAVAILABLE' | 'WATER_BUSY' | 'NO_CREW' | 'VEHICLE_MOVING' | 'VEHICLE_TYPE' | 'BOARDING_PENDING'
+export type CommandRejection = 'SELECTION_REQUIRED' | 'INVALID_SELECTION' | 'CONFIRMATION_REQUIRED' | 'TARGET_NOT_FOUND' | 'TARGET_UNAVAILABLE' | 'WATER_BUSY' | 'NO_CREW' | 'VEHICLE_MOVING' | 'VEHICLE_TYPE' | 'BOARDING_PENDING'
     | 'CONTROL_BUSY' | 'PLAYER_CONTROL' | 'CORDON_REQUIRED' | 'SELECT_ENTIRE_CORDON' | 'INVALID_PUSH'
     | 'COOLDOWN' | 'RESOURCE_EMPTY' | 'RESOURCE_BUSY' | 'CAPACITY' | 'NO_STATION' | 'SUPERSEDED'
-    | 'OWNER_STOPPED' | 'SCENARIO_STOPPED';
+    | 'COMMAND_LOCKED' | 'OWNER_STOPPED' | 'SCENARIO_STOPPED';
 
 /** Resolution of standard command work; completion means application, not completion of the physical task. */
 export type CommandOutcome =
@@ -265,6 +307,40 @@ export interface CommandContext {
     execute(id: PoliceCommandId, request: CommandRequest): CommandOperation;
 }
 
+/** Opaque reference to a host-owned kinematic convoy on the selected city's route. */
+export interface ConvoyHandle {
+    readonly id: string;
+    readonly kind: 'convoy';
+    readonly run: number;
+}
+
+/** Immutable convoy snapshot; route buffers, meshes and raw GPU stats remain private. */
+export interface ConvoyObservation {
+    readonly handle: ConvoyHandle;
+    readonly routeLength: number;
+    readonly distance: number;
+    readonly progress: number;
+    readonly speed: number;
+    readonly integrity: number;
+    readonly blockedFor: number;
+    readonly blockers: number;
+    readonly attackers: number;
+    readonly moving: boolean;
+    readonly arrived: boolean;
+}
+
+/** Host-managed convoy creation, status, route sample and departure. */
+export interface ConvoyContext {
+    /** Create a convoy on the selected city's authored route during setup. */
+    create(options: { id: string; vehicles?: number; vipIndex?: number }): ConvoyHandle;
+    /** Latest immutable semantic state. */
+    get(convoy: ConvoyHandle | string): ConvoyObservation;
+    /** Sample a route point by arc distance, without exposing route storage. */
+    at(convoy: ConvoyHandle | string, distance: number): Readonly<{ position: Point; heading: number }>;
+    /** Start motion once; repeated calls are rejected. */
+    depart(convoy: ConvoyHandle | string): Readonly<{ status: 'completed' } | { status: 'rejected'; code: 'ALREADY_MOVING' }>;
+}
+
 /** Configuration for the preview's timed survival objective. */
 export interface SurviveOptions {
     /** Objective ID: a lowercase slug, independent of its display label. */
@@ -283,6 +359,47 @@ export interface SurviveObjective extends Readonly<SurviveOptions> {
     readonly kind: 'survive';
 }
 
+/** Timed objective that loses if GPU clash pressure reaches a full meter. */
+export interface PreventClashOptions extends SurviveOptions {
+    /** Loss message when the integrated clash meter fills. */
+    failureReason?: string;
+}
+
+/** Validated, immutable clash-avoidance objective. */
+export interface PreventClashObjective extends Readonly<PreventClashOptions> {
+    /** Identifies the per-step clash meter evaluator. */
+    readonly kind: 'prevent-clash';
+    /** Default full-meter loss reason or configured override. */
+    readonly failureReason: string;
+}
+
+/** Escort a host-managed convoy to the end of its city route. */
+export interface EscortConvoyOptions extends SurviveOptions {
+    /** ID used when the convoy is created during setup. */
+    convoy: string;
+    /** Maximum continuous near-stop duration before loss; defaults to 75 seconds. */
+    maxBlocked?: number;
+    /** Optional terminal reasons for damage, blockage and timeout. */
+    integrityReason?: string;
+    blockedReason?: string;
+    timeoutReason?: string;
+}
+
+/** Convoy arrival wins; integrity, blockage and duration failures lose. */
+export interface EscortConvoyObjective extends Readonly<EscortConvoyOptions> {
+    readonly kind: 'escort-convoy';
+    readonly maxBlocked: number;
+    readonly integrityReason: string;
+    readonly blockedReason: string;
+    readonly timeoutReason: string;
+}
+
+/** Escort the selected route convoy, losing if it is destroyed or remains blocked too long. */
+export declare function escortConvoy(options: EscortConvoyOptions): EscortConvoyObjective;
+
+/** Track GPU-reported crowd contacts and hold the scenario without a full brawl. */
+export declare function preventClash(options: PreventClashOptions): PreventClashObjective;
+
 /** Timed protection with immediate loss on logical capture or observed subject death. */
 export interface ProtectOptions extends SurviveOptions {
     /** ID of a protected person declared during setup; objects are not accepted. */
@@ -296,7 +413,7 @@ export interface ProtectObjective extends Readonly<ProtectOptions> {
 }
 
 /** Objective kinds currently implemented by the preview. */
-export type Objective = SurviveObjective | ProtectObjective | ExtractionObjective | HoldBuildingObjective;
+export type Objective = SurviveObjective | PreventClashObjective | EscortConvoyObjective | ProtectObjective | ExtractionObjective | HoldBuildingObjective;
 
 /** Existing defense pressure/evacuation formulas, separate from waves, commands and scoring policies. */
 export interface HoldBuildingOptions extends Omit<SurviveOptions, 'seconds'> {
@@ -312,6 +429,29 @@ export interface HoldBuildingOptions extends Omit<SurviveOptions, 'seconds'> {
 export interface HoldBuildingObjective extends Readonly<HoldBuildingOptions> {
     /** Selects facade/evacuation integration and default three-row objective HUD. */
     readonly kind: 'hold-building';
+}
+
+/** Immutable facts passed to ordered final-outcome rules. */
+export interface OutcomeContext {
+    /** Current game time. */
+    readonly time: number;
+    /** Semantic final/current totals, not raw GPU statistics. */
+    readonly metrics: ScenarioMetrics;
+    /** The scenario's configured primary objective. */
+    readonly objective: Objective;
+    /** Current immutable building pressure state, or null for other objectives. */
+    readonly building: Readonly<{ breach: number; evacuation: number; blocked: readonly boolean[]; facade: number }> | null;
+    /** Latest complete accepted observation, if available. */
+    readonly observation: Observation | null;
+}
+
+/** First matching rule in the scenario's outcomes array wins; order defines precedence. */
+export interface OutcomeRule {
+    /** Unique rule ID. */
+    readonly kind: 'outcome';
+    readonly id: string;
+    /** Return null to defer to later rules, or a terminal outcome. Must be synchronous and side-effect free. */
+    readonly evaluate: (context: OutcomeContext) => Readonly<{ win: boolean; reason: string }> | null;
 }
 
 /** A confirmed vehicle extraction must reach this region before the deadline. */
@@ -811,8 +951,17 @@ export interface ScenarioContext {
     readonly metrics: ScenarioMetrics;
     /** Immutable inventory queries; only command execution reserves/spends in this slice. */
     readonly resources: { get(id: string): ResourceObservation; list(): readonly ResourceObservation[] };
+    /** Opaque actor-level crowd modes and bounded agitation/resolve effects; no raw member indices. */
+    readonly crowd: {
+        /** Change a civilian crowd actor's semantic mode. */
+        setMode(actor: ActorHandle | string, mode: 'hold' | 'march' | 'riot'): CrowdMutationResult;
+        /** Add bounded agitation/resolve deltas to active observed civilians in the actor. */
+        nudge(actor: ActorHandle | string, options: { agitation?: number; resolve?: number }): CrowdMutationResult;
+    };
     /** Enabled command catalog and owner-scoped execution. */
     readonly commands: CommandContext;
+    /** Host-managed kinematic convoy; create during setup, then inspect and depart through its handle. */
+    readonly convoys: ConvoyContext;
     /** Target aliases expose immutable footprint/exit geometry without raw map buffers. */
     readonly targets: { get(alias: string): TargetInfo };
     /** Sampled spatial measurements and connected-road placement. */
@@ -864,6 +1013,8 @@ export interface ScenarioContext {
     };
     /** Elapsed game seconds; does not advance during setup, briefing, startup or pause. */
     readonly time: number;
+    /** Next value from this run's owned random stream; repeatable when ScenarioOptions.seed is supplied. */
+    random(): number;
     /** Latest accepted sample, or null during setup before bootstrap readback. */
     readonly observation: Observation | null;
 }
@@ -973,7 +1124,26 @@ export type ProtectedEvent =
     });
 
 /** Built-in event vocabulary for this preview; arbitrary custom event registration is not exposed. */
-export type ScenarioEvent = MovementEvent | ProtectedEvent | PersonEvent | VehicleEvent | TransportEvent | CommandEvent;
+export type ScenarioEvent = MovementEvent | ProtectedEvent | PersonEvent | VehicleEvent | TransportEvent | CommandEvent | SnatchTaskEvent | CrowdEvent;
+
+/** Actor-level crowd mode or bounded agitation/resolve effect. */
+export interface CrowdEvent {
+    /** Mode changes or applied semantic crowd nudges. */
+    readonly type: 'crowd.mode-changed' | 'crowd.nudged';
+    /** Run-scoped event sequence. */
+    readonly sequence: number;
+    /** Game time of publication. */
+    readonly time: number;
+    /** Affected crowd actor. */
+    readonly actor: ActorHandle;
+    /** Present for mode changes. */
+    readonly mode?: 'hold' | 'march' | 'riot';
+    /** Number of active observed people affected by a nudge. */
+    readonly people?: number;
+    /** Applied agitation/resolve deltas for nudge events. */
+    readonly agitation?: number;
+    readonly resolve?: number;
+}
 
 /** Lifecycle facts distinguish intention, acceptance, application, cancellation and infrastructure failure. */
 export interface CommandEvent {
@@ -995,12 +1165,32 @@ export interface CommandEvent {
     /** Selected leader person handle for snatch. */
     readonly target?: PersonHandle;
     /** Player UI or behavior/script origin. */
-    readonly source: 'player' | 'behavior';
+    readonly source: 'player' | 'confirmed-player' | 'behavior';
     /** Present after successful synchronous application. */
     readonly receipt?: CommandReceipt;
     /** Expected rejection code, when rejected. */
     readonly code?: CommandRejection;
     /** Cancellation or failure explanation, where applicable. */
+    readonly reason?: string;
+}
+
+/** Completion/abandonment of persistent pursuit is distinct from snatch command application. */
+export interface SnatchTaskEvent {
+    /** A target was arrested/detained, the pursuit was abandoned, or another action cancelled it. */
+    readonly type: 'snatch.completed' | 'snatch.abandoned' | 'snatch.cancelled';
+    /** Run-scoped event sequence. */
+    readonly sequence: number;
+    /** Game time when the task ended. */
+    readonly time: number;
+    /** Operation ID from the applied snatch command. */
+    readonly operation: string;
+    /** Squad assigned to the pursuit. */
+    readonly squad: ActorHandle;
+    /** Opaque identity for the targeted leader. */
+    readonly target: PersonHandle;
+    /** Native task result when pursuit completes or is abandoned. */
+    readonly result?: 'arrested' | 'detained' | 'abandoned';
+    /** Reason another command or movement cancelled the pursuit. */
     readonly reason?: string;
 }
 
@@ -1076,6 +1266,22 @@ export interface BehaviorContext extends ScenarioContext {
     readonly id: string;
     /** Aborted before stop hooks run; use it to observe owner termination. */
     readonly signal: AbortSignal;
+    /** Commands with owner-scoped visibility locks for guided interactions. */
+    readonly commands: CommandContext & {
+        /** Hide a configured command while this behavior remains active. */
+        lock(id: PoliceCommandId): void;
+        /** Remove this behavior's lock; other owners may still keep the command hidden. */
+        unlock(id: PoliceCommandId): void;
+    };
+    /** Owned step-by-step coach card; it clears automatically when this behavior stops. */
+    readonly presentation: ScenarioContext['presentation'] & {
+        /** Show/update this owner's coach card, or clear it with null. */
+        coach(card: CoachCard | null): void
+    };
+    /**
+     * The host emits only semantic input facts. Selection uses opaque actor handles;
+     * raw simulation groups and indices are never exposed.
+     */
     /** Owned orders respect player priority and other behaviors' existing control. */
     readonly movement: {
         /** Install movement; repeated same-owner requests supersede older ones. */
@@ -1115,8 +1321,52 @@ export interface BehaviorHooks {
     observe?(ctx: BehaviorContext, sample: Observation): void;
     /** Synchronous ordered event handling; may initiate owned work, not return a promise. */
     onEvent?(ctx: BehaviorContext, event: ScenarioEvent): void;
+    /** Synchronous player-input observation for tutorials and interaction-driven scenarios. */
+    onAction?(ctx: BehaviorContext, action: PlayerAction): void;
     /** Called once on termination; asynchronous cleanup is bounded and cannot delay results indefinitely. */
     stop?(ctx: CleanupContext, reason: StopReason): void | Promise<void>;
+}
+
+/** Safe player input payload delivered to behavior hooks. */
+export interface PlayerAction {
+    /** Host interaction category. */
+    readonly type: 'pan' | 'zoom' | 'select' | 'deselect' | 'move' | 'line' | 'drive' | 'order' | 'key' | 'pause' | 'speed' | 'sound';
+    /** Opaque actors selected at the time of input. */
+    readonly selection: readonly ActorHandle[];
+    /** Selection or pointer gesture variant. */
+    readonly how?: string;
+    /** Semantic command key when the player issued an order. */
+    readonly key?: string;
+    /** Local destination for movement, driving, or targeted orders. */
+    readonly at?: Point;
+    /** Cordon start point on line actions. */
+    readonly line?: Point;
+    /** Vehicle handle on drive actions. */
+    readonly vehicle?: VehicleHandle;
+    /** Pause state, speed multiplier, or sound mute state for those actions. */
+    readonly paused?: boolean;
+    readonly speed?: number;
+    readonly muted?: boolean;
+}
+
+/** Validated coach card data; callbacks remain owned by the behavior instance. */
+export interface CoachCard {
+    /** Short chapter label. */
+    readonly chapter: string;
+    /** Coach instruction; basic bold/italic tags are supported. */
+    readonly text: string;
+    /** One-based step number. */
+    readonly step: number;
+    /** Total number of steps. */
+    readonly total: number;
+    /** Optional existing HUD element to highlight. */
+    readonly spot?: string;
+    /** Show a Continue button. */
+    readonly next?: boolean;
+    /** Continue callback. */
+    readonly onNext: () => void;
+    /** Optional Skip callback. */
+    readonly onSkip?: () => void;
 }
 
 /** Deep-readonly options view; runtime options must be finite, plain configuration data, not callbacks or handles. */
@@ -1173,10 +1423,20 @@ export interface ScenarioOptions {
     resources?: Record<string, ResourceOptions>;
     /** Opt-in standard police orders; gas/reinforce definitions must reference declared resources. */
     commands?: readonly PoliceCommandDefinition[];
+    /** Commands hidden from the first briefing until an owning behavior unlocks them. */
+    initiallyLockedCommands?: readonly PoliceCommandId[];
     /** Optional synchronous outcome score policy; return a validated 0..3 stars and result rows. */
     score?: ScenarioScoring;
+    /** Ordered terminal outcome rules; the first matching rule wins before the default objective result. */
+    outcomes?: readonly OutcomeRule[];
+    /** Extra HUD rows driven by immutable semantic metric thresholds. */
+    indicators?: readonly MetricIndicator[];
+    /** Optional synchronous phase countdown/status policy. */
+    phase?: ScenarioPhasePolicy;
     /** Show this scenario in the mission picker; default true. Direct ?m= URLs still work when false. */
     menu?: boolean;
+    /** Optional owned gameplay random seed from zero through 2^32-1. */
+    seed?: number;
     /** Globally unique lowercase slug used by the m query parameter and saved results. */
     id: string;
     /** Scenario name shown in the menu, briefing and HUD. */
@@ -1209,10 +1469,20 @@ export interface ScenarioDefinition {
     readonly resources: Readonly<Record<string, ResourceDefinition>>;
     /** Frozen validated command definitions; default empty. */
     readonly commands: readonly PoliceCommandDefinition[];
+    /** Frozen command IDs initially hidden until a behavior unlocks them. */
+    readonly initiallyLockedCommands: readonly PoliceCommandId[];
     /** Score policy, or null for the default three-star win/zero-star loss. */
     readonly score: ScenarioScoring | null;
+    /** Ordered, frozen terminal outcome rules; defaults to none. */
+    readonly outcomes: readonly OutcomeRule[];
+    /** Frozen metric thresholds shown beside the primary objective. */
+    readonly indicators: readonly MetricIndicator[];
+    /** Phase text policy or null for the default duration countdown. */
+    readonly phase: ScenarioPhasePolicy | null;
     /** Whether this scenario appears in the player-facing picker. */
     readonly menu: boolean;
+    /** Explicit 32-bit random seed, or null when the runtime creates one. */
+    readonly seed: number | null;
     /** Distinguishes a scenario definition from a mission class or behavior attachment. */
     readonly kind: 'scenario';
     /** Protocol version validated by the host. */
@@ -1251,6 +1521,8 @@ export function landmark(name: string): LandmarkReference;
 export function target(name: string): TargetReference;
 /** Hold a building using the existing breach/exit formulas, loss-first precedence and default HUD. */
 export function holdBuilding(options: HoldBuildingOptions): HoldBuildingObjective;
+/** Define one ordered, synchronous terminal-outcome rule. */
+export function defineOutcome(rule: Omit<OutcomeRule, 'kind'>): OutcomeRule;
 /** Create a validated timed objective whose progress drives the default HUD and winning result. */
 export function survive(options: SurviveOptions): SurviveObjective;
 /** Fail on capture/death or lack of safety at the deadline; win after the duration while active/carried. */

@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defineBehavior, defineScenario, place, survive } from '../src/game/scenarios/definition.js';
+import defenseScenario from '../examples/defense-scenario.js';
+import governmentScenario from '../examples/government-scenario.js';
+import clashScenario from '../examples/clash-scenario.js';
+import trainingScenario from '../examples/training-scenario.js';
+import { ClashMission } from '../src/game/missions/clash.js';
+import { STAT } from '../src/sim/crowd.js';
+import { advanceClash } from '../src/game/scenarios/clash.js';
+import { ScenarioEngine } from '../src/game/scenarios/engine.js';
+import { defineBehavior, defineOutcome, defineScenario, escortConvoy, place, preventClash, survive } from '../src/game/scenarios/definition.js';
 import { ScenarioRuntime } from '../src/game/scenarios/runtime.js';
 import { followRoute } from '../src/game/scenarios/route.js';
 
@@ -25,6 +33,60 @@ function fixture( definition = scenario(), overrides = {} ) {
 
 }
 
+function assemblyReactionHooks() {
+
+	let reactions;
+	const defineBehavior = ( definition ) => {
+		if ( definition.id === 'assembly-force-and-injury-reactions' ) reactions = definition.create();
+		return ( options ) => ( { kind: 'behavior', id: options.id } );
+	};
+	defenseScenario( { defineScenario: ( options ) => options, defineBehavior, defineOutcome: ( rule ) => rule,
+		holdBuilding: ( options ) => options, landmark: ( name ) => name, place: ( name ) => name,
+		policeCommands: () => [], target: ( name ) => name } );
+	return reactions;
+
+}
+
+function governmentRouteHooks() {
+
+	let routes;
+	const defineBehavior = ( definition ) => {
+		if ( definition.id === 'government-route-columns' ) routes = definition.create();
+		return ( options ) => ( { kind: 'behavior', id: options.id } );
+	};
+	governmentScenario( { defineScenario: ( options ) => options, defineBehavior, defineOutcome: ( rule ) => rule,
+		holdBuilding: ( options ) => options, landmark: ( name ) => name, place: ( name ) => name,
+		policeCommands: () => [], target: ( name ) => name } );
+	return routes;
+
+}
+
+function clashCandidate() {
+
+	let director, definition;
+	const defineBehavior = ( value ) => {
+		if ( value.id === 'clash-director' ) director = value.create();
+		return ( options ) => ( { kind: 'behavior', id: options.id } );
+	};
+	definition = clashScenario( { defineBehavior, defineScenario: ( options ) => options, landmark: ( name ) => name,
+		place: ( name ) => name, policeCommands: () => [], preventClash: ( options ) => ( { ...options, kind: 'prevent-clash' } ) } );
+	return { definition, director };
+
+}
+
+function trainingCurriculum() {
+
+	let curriculum;
+	const definition = trainingScenario( { defineBehavior: ( value ) => {
+		if ( value.id === 'training-curriculum' ) curriculum = value.create();
+		return ( options ) => ( { kind: 'behavior', id: options.id } );
+	}, defineOutcome: ( rule ) => rule, defineScenario: ( options ) => options, landmark: ( name ) => name,
+		place: ( name ) => name, policeCommands: () => [ 'arrest', 'charge', 'snatch', 'kettle', 'shield-push', 'crew', 'gas', 'reinforce', 'water' ]
+			.map( ( id ) => ( { id } ) ), survive: ( options ) => ( { ...options, kind: 'survive' } ), target: ( name ) => name } );
+	return { definition, curriculum };
+
+}
+
 test( 'definitions detach configuration and reject unsupported or malformed values', () => {
 
 	const goals = [ 'Hold' ], location = [ 1, 2 ];
@@ -37,7 +99,95 @@ test( 'definitions detach configuration and reject unsupported or malformed valu
 	assert.throws( () => scenario( { side: 'protest' } ), /police/ );
 	assert.throws( () => scenario( { unsupported: [] } ), /unsupported field/ );
 	assert.throws( () => survive( { id: 'hold', seconds: NaN } ), /finite/ );
+	assert.throws( () => scenario( { seed: - 1 } ), /unsigned 32-bit/ );
 	assert.throws( () => scenario( { locations: { square: [ Infinity, 0 ] } } ), /finite/ );
+	const charge = { kind: 'police-command', id: 'charge', resource: null };
+	assert.throws( () => scenario( { commands: [ charge ], initiallyLockedCommands: [ 'gas' ] } ), /declared command IDs/ );
+	assert.throws( () => scenario( { commands: [ charge ], initiallyLockedCommands: [ 'charge', 'charge' ] } ), /IDs must be unique/ );
+
+} );
+
+test( 'per-step clash pressure matches the unchanged native mission formula', () => {
+
+	const native = { march: [], t: 0, stats: new Uint32Array( 48 ), clash: 0, duration: 720, flags: {},
+		world: { groupsOf: () => [], intel: null }, event() {}, end() {} };
+	let pressure = 0;
+	for ( const [ contacts, dt ] of [ [ 1, 0.25 ], [ 600, 0.25 ], [ 2400, 0.5 ], [ 0, 1 ], [ 0, 2 ], [ 4000, 0.25 ] ] ) {
+
+		native.t += dt; native.stats[ STAT.CLASH ] = contacts;
+		ClashMission.prototype.tick.call( native, dt );
+		pressure = advanceClash( pressure, contacts, dt );
+		assert.equal( pressure, native.clash );
+
+	}
+
+} );
+
+test( 'clash objective exposes semantic GPU contacts and resolves brawl loss before timeout', async () => {
+
+	let contacts = 2400;
+	const objective = preventClash( { id: 'separate-crowds', seconds: 60 } );
+	const { runtime } = fixture( scenario( { objectives: [ objective ] } ), { readMetrics: () => ( { opinion: 60, clashContacts: contacts, counters: {} } ) } );
+	await runtime.setup(); runtime.observe( {} ); runtime.start(); runtime.update( 20 );
+	assert.equal( runtime.metrics().clashContacts, 2400 );
+	assert.equal( runtime.metrics().clashPressure, 0.56 );
+	assert.equal( runtime.objectives()[ 1 ].text, '56%' );
+	runtime.update( 20 );
+	assert.equal( runtime.result.win, false );
+	assert.equal( runtime.result.reason, objective.failureReason );
+	runtime.dispose();
+
+	contacts = 0;
+	const win = fixture( scenario( { objectives: [ preventClash( { id: 'separate-crowds', seconds: 2 } ) ] } ),
+		{ readMetrics: () => ( { opinion: 60, clashContacts: contacts, counters: {} } ) } ).runtime;
+	await win.setup(); win.observe( {} ); win.start(); win.update( 2 );
+	assert.equal( win.result.win, true ); win.dispose();
+
+} );
+
+test( 'escort convoy objective exposes immutable route state and wins on arrival or loses on integrity/blockage', async () => {
+
+	let state = { distance: 10, progress: 0.1, speed: 5, integrity: 1, blockedFor: 0, blockers: 0, attackers: 0, moving: false, arrived: false }, released = 0, moving = false;
+	const create = ( seconds = 900, maxBlocked = 75 ) => {
+		let handle;
+		const definition = scenario( { setup: ( ctx ) => { handle = ctx.convoys.create( { id: 'vip' } ); },
+			objectives: [ escortConvoy( { id: 'escort', convoy: 'vip', seconds, maxBlocked } ) ] } );
+		const runtime = new ScenarioRuntime( definition, { place: () => [ 10, 20 ], createConvoy: () => ( { length: 100 } ),
+			readConvoy: () => ( { ...state, moving } ), convoyPoint: ( _convoy, distance ) => ( { x: distance, y: 0, heading: 0 } ),
+			departConvoy() { moving = true; }, updateConvoy() {}, updateConvoyWalls() {}, releaseConvoy: () => { released ++; } } );
+		return { runtime, get handle() { return handle; } };
+	};
+	const arrival = create(), runtime = arrival.runtime;
+	await runtime.setup(); runtime.observe( {} ); runtime.start();
+	assert.equal( runtime.context.convoys.get( arrival.handle ).progress, 0.1 );
+	assert.deepEqual( runtime.context.convoys.at( arrival.handle, 15 ), { position: [ 15, 0 ], heading: 0 } );
+	assert.throws( () => runtime.context.convoys.at( arrival.handle, 101 ), /within the route length/ );
+	assert.deepEqual( runtime.context.convoys.depart( arrival.handle ), { status: 'completed' } );
+	assert.deepEqual( runtime.context.convoys.depart( arrival.handle ), { status: 'rejected', code: 'ALREADY_MOVING' } );
+	state = { ...state, arrived: true, progress: 1, distance: 100 };
+	runtime.update( 1 );
+	assert.equal( runtime.result.win, true ); runtime.dispose();
+
+	state = { distance: 10, progress: 0.1, speed: 0, integrity: 0.5, blockedFor: 3, blockers: 12, attackers: 0, moving: true, arrived: false };
+	const blocked = create( 900, 2 );
+	await blocked.runtime.setup(); blocked.runtime.observe( {} ); blocked.runtime.start(); blocked.runtime.update( 1 );
+	assert.equal( blocked.runtime.result.win, false ); assert.match( blocked.runtime.result.reason, /stuck too long/ );
+	blocked.runtime.dispose();
+
+	state = { distance: 10, progress: 0.1, speed: 0, integrity: 0, blockedFor: 0, blockers: 0, attackers: 30, moving: true, arrived: false };
+	const destroyed = create();
+	await destroyed.runtime.setup(); destroyed.runtime.observe( {} ); destroyed.runtime.start(); destroyed.runtime.update( 1 );
+	assert.equal( destroyed.runtime.result.win, false ); assert.match( destroyed.runtime.result.reason, /overrun/ );
+	destroyed.runtime.dispose(); assert.equal( released, 3 );
+
+} );
+
+test( 'private engine maps only the semantic per-step clash count from aggregate stats', () => {
+
+	const stats = new Uint32Array( 48 ); stats[ STAT.CLASH ] = 7;
+	const engine = new ScenarioEngine( { opinion: 60, escalation: 0, counters: { injByPolice: 0, injOther: 0, injPolice: 0,
+		arrested: 0, arrestedSitters: 0, gone: 0, gas: 0 }, stats } );
+	assert.equal( engine.readMetrics().clashContacts, 7 );
 
 } );
 
@@ -87,6 +237,18 @@ test( 'clock starts after briefing and only advances while running; result seals
 	assert.equal( runtime.objectives()[ 0 ].state, 'done' );
 	assert.throws( () => { runtime.result.lines[ 0 ][ 0 ] = 'changed'; }, TypeError );
 	assert.throws( () => runtime.context.spawn.squad( { id: 'late', at: 'square' } ), /cannot mutate/ );
+
+} );
+
+test( 'scenario-owned random streams are repeatable for a seed and remain bounded', () => {
+
+	const draw = ( seed ) => {
+		const runtime = new ScenarioRuntime( scenario( { seed } ), {} );
+		return Array.from( { length: 8 }, () => runtime.context.random() );
+	};
+	const first = draw( 42 ), repeated = draw( 42 ), other = draw( 43 );
+	assert.deepEqual( first, repeated ); assert.notDeepEqual( first, other );
+	assert.ok( first.every( ( value ) => value >= 0 && value < 1 ) );
 
 } );
 
@@ -516,6 +678,188 @@ test( 'custom scoring receives frozen semantic metrics and validates score rows'
 
 } );
 
+test( 'metric indicators apply warning and failure thresholds and phase policies receive semantic state', () => {
+
+	let phaseContext;
+	const definition = scenario( { indicators: [ { id: 'injury-limit', label: 'Police injuries', counter: 'injuriesByPolice', maximum: 25, warnAt: 15 } ],
+		phase: ( context ) => { phaseContext = context; return `At ${context.time}`; } } );
+	const metrics = ( injuriesByPolice ) => ( { opinion: 60, counters: { injuriesByPolice } } );
+	const states = [ 15, 16, 25, 26 ].map( ( injuriesByPolice ) => fixture( definition, { readMetrics: () => metrics( injuriesByPolice ) } ).runtime.objectives().at( - 1 ).state );
+	assert.deepEqual( states, [ 'ok', 'warn', 'warn', 'bad' ] );
+	const runtime = fixture( definition ).runtime;
+	assert.equal( runtime.phase(), 'At 0' );
+	assert.equal( phaseContext.objective, 'survive' );
+	assert.equal( phaseContext.metrics.opinion, 60 );
+	assert.throws( () => scenario( { indicators: [ { id: 'bad-limit', label: 'Bad', counter: 'injuriesByPolice', maximum: 10, warnAt: 11 } ] } ), /between zero and maximum/ );
+	assert.throws( () => scenario( { indicators: [ { id: 'unknown', label: 'Unknown', counter: 'privateValue', maximum: 10 } ] } ), /unknown semantic counter/ );
+
+} );
+
+test( 'invalid phase policy output fails the runtime instead of escaping into the HUD', () => {
+
+	const { runtime, failures } = fixture( scenario( { phase: () => Promise.resolve( 'too late' ) } ) );
+	assert.equal( runtime.phase(), '1:00 left' );
+	assert.equal( runtime.state, 'failed' );
+	assert.match( failures[ 0 ].message, /scenario\.phase: must return synchronous non-empty text/ );
+
+} );
+
+test( 'Assembly force reactions match the source thresholds and only follow applied commands', () => {
+
+	const reactions = assemblyReactionHooks(), near = { handle: { id: 'near', kind: 'crowd', run: 1 }, center: [ 44, 0 ] };
+	const outside = { handle: { id: 'outside', kind: 'crowd', run: 1 }, center: [ 46, 0 ] };
+	const person = ( actor, id ) => ( { handle: { id, kind: 'person', run: 1 }, actor: actor.handle, faction: 'protester', status: 'active' } );
+	const members = new Map( [ [ near.handle.id, Array.from( { length: 60 }, ( _, index ) => person( near, `near-${index}` ) ) ],
+		[ outside.handle.id, [ person( outside, 'outside-1' ) ] ] ] );
+	const changes = [], notices = [];
+	const context = { time: 0, observation: { actors: [ near, outside ] }, people: { members: ( actor ) => members.get( actor.id ) ?? [] },
+		crowd: { nudge: ( actor, options ) => { changes.push( [ actor.id, options ] ); return { status: 'completed', people: members.get( actor.id ).length }; },
+			setMode: ( actor, mode ) => changes.push( [ actor.id, mode ] ) },
+		presentation: { notice: ( text ) => notices.push( text ) } };
+	reactions.onEvent( context, { type: 'command.applied', command: 'charge', at: [ 0, 0 ] } );
+	assert.deepEqual( changes, [ [ 'near', { agitation: 0.2 } ], [ 'near', 'riot' ] ] );
+	assert.match( notices[ 0 ], /Baton charge: ~60 people/ );
+	changes.length = 0;
+	reactions.onEvent( context, { type: 'command.rejected', command: 'charge', at: [ 0, 0 ] } );
+	assert.deepEqual( changes, [] );
+	for ( const [ command, radius, agitation ] of [ [ 'kettle', 50, 0.25 ], [ 'gas', 60, 0.25 ], [ 'water', 50, 0.2 ],
+		[ 'arrest', 35, 0.12 ], [ 'snatch', 35, 0.12 ], [ 'shield-push', 40, 0.15 ] ] ) {
+		near.center = [ radius - 0.1, 0 ]; outside.center = [ radius + 0.1, 0 ]; context.time ++;
+		changes.length = 0;
+		reactions.onEvent( context, { type: 'command.applied', command, at: [ 0, 0 ] } );
+		const expected = [ [ 'near', { agitation } ] ];
+		if ( agitation >= 0.2 ) expected.push( [ 'near', 'riot' ] );
+		assert.deepEqual( changes, expected, `${command} should react inside ${radius}m only` );
+	}
+
+} );
+
+test( 'Assembly injury reactions nudge the injured group and nearby protesters once per new sample delta', () => {
+
+	const reactions = assemblyReactionHooks(), group = ( id, x ) => ( { handle: { id, kind: 'crowd', run: 1 }, center: [ x, 0 ] } );
+	const first = group( 'hurt', 0 ), neighbor = group( 'neighbor', 40 ), distant = group( 'distant', 60 );
+	const people = [ ...Array.from( { length: 4 }, ( _, index ) => ( { handle: { id: `injured-${index}` }, actor: first.handle, faction: 'protester', status: 'active' } ) ),
+		{ handle: { id: 'neighbor-1' }, actor: neighbor.handle, faction: 'protester', status: 'active' },
+		{ handle: { id: 'distant-1' }, actor: distant.handle, faction: 'protester', status: 'active' } ];
+	const makeObservation = ( sequence, injured ) => ( { sequence, actors: [ first, neighbor, distant ], people: people.map( ( person ) => person.actor === first.handle
+		? { ...person, status: injured ? 'injured' : 'active' } : person ) } );
+	const changes = [], context = { people: { members: ( actor ) => people.filter( ( person ) => person.actor === actor ) },
+		crowd: { nudge: ( actor, options ) => { changes.push( [ actor.id, options ] ); return { status: 'completed', people: 1 }; } } };
+	reactions.start( { ...context, observation: makeObservation( 1, false ) } );
+	reactions.observe( context, makeObservation( 2, true ) );
+	reactions.observe( context, makeObservation( 3, true ) );
+	assert.deepEqual( changes, [ [ 'hurt', { agitation: 0.35, resolve: 0.05 } ], [ 'neighbor', { agitation: 0.175 } ] ] );
+
+} );
+
+test( 'Government Palace waves split across exact route columns and advance through both legs to rally', async () => {
+
+	const behavior = governmentRouteHooks(), timers = [], spawned = [], centers = new Map(), orders = [], nudges = [], modes = [];
+	const context = { time: 0, signal: new AbortController().signal, observation: null,
+		timeline: { after: ( seconds, callback ) => { timers.push( { seconds, callback } ); return { state: 'pending', cancel() {} }; } },
+		presentation: { notice() {} },
+		people: { members: () => [ { faction: 'protester', status: 'active' } ] },
+		crowd: { nudge: ( actor, options ) => { nudges.push( [ actor.id, options ] ); return { status: 'completed', value: { actor, people: 1 } }; },
+			setMode: ( actor, mode ) => { modes.push( [ actor.id, mode ] ); return { status: 'completed', value: { actor, mode } }; } },
+		spawn: { crowd: ( options ) => {
+			const actor = { id: options.id, kind: 'crowd', run: 1 };
+			centers.set( actor.id, [ - 545, - 243 ] ); spawned.push( { actor, options } );
+			return { settled: Promise.resolve( { status: 'completed', value: actor } ) };
+		} },
+		actors: { get: ( actor ) => ( { handle: actor, alive: 100, center: centers.get( actor.id ) ?? null } ) },
+		movement: { move: ( actor, at, options ) => {
+			orders.push( { actor, at, options } );
+			return { settled: Promise.resolve( { status: 'completed', value: {} } ) };
+		} },
+	};
+	behavior.start( context );
+	timers.find( ( timer ) => timer.seconds === 8 ).callback( context );
+	await Promise.resolve();
+	assert.equal( spawned.length, 20 );
+	assert.equal( spawned.filter( ( entry ) => entry.options.goal[ 0 ] === - 668 ).length, 10 );
+	assert.equal( spawned.filter( ( entry ) => entry.options.goal[ 0 ] === - 410 ).length, 10 );
+	assert.ok( spawned.every( ( entry ) => entry.options.spread === 35 && entry.options.goalRadius === 12 ) );
+	context.observation = { actors: spawned.map( ( entry ) => ( { handle: entry.actor, center: [ - 545, - 243 ] } ) ), people: [] };
+	behavior.onEvent( context, { type: 'command.applied', command: 'charge', at: [ - 545, - 243 ] } );
+	assert.equal( nudges.length, 20 );
+	assert.deepEqual( modes, [], 'route-bound groups should not be forced into riot mode' );
+
+	const first = spawned[ 0 ], waypoints = [ [ - 668, - 216 ], [ - 700, - 300 ], [ - 682, - 308 ] ];
+	centers.set( first.actor.id, waypoints[ 0 ] );
+	behavior.update( context, 1 / 60 ); await Promise.resolve();
+	assert.deepEqual( orders[ 0 ], { actor: first.actor, at: waypoints[ 1 ], options: { radius: 12 } } );
+	centers.set( first.actor.id, waypoints[ 1 ] );
+	behavior.update( context, 1 / 60 ); await Promise.resolve();
+	assert.deepEqual( orders[ 1 ], { actor: first.actor, at: waypoints[ 2 ], options: { radius: 25 } } );
+	context.observation = { actors: spawned.map( ( entry ) => ( { handle: entry.actor,
+		center: entry.actor.id === first.actor.id ? waypoints[ 2 ] : [ 500, 500 ] } ) ), people: [] };
+	behavior.onEvent( context, { type: 'command.applied', command: 'charge', at: waypoints[ 2 ] } );
+	assert.deepEqual( modes, [ [ first.actor.id, 'riot' ] ], 'a group may enter riot mode after reaching its rally' );
+
+} );
+
+test( 'Government injury reactions apply capped same-group and half-strength neighbor deltas once per sample increase', () => {
+
+	const behavior = governmentRouteHooks(), nudge = [], notices = [];
+	const actors = [ [ 'hurt', 0 ], [ 'neighbor', 40 ], [ 'distant', 51 ] ].map( ( [ id, x ] ) => ( { handle: { id, kind: 'crowd', run: 1 }, center: [ x, 0 ] } ) );
+	const people = [ ...Array.from( { length: 4 }, ( _, index ) => ( { handle: { id: `hurt-${index}` }, actor: actors[ 0 ].handle, faction: 'protester', status: 'active' } ) ),
+		{ handle: { id: 'neighbor-person' }, actor: actors[ 1 ].handle, faction: 'protester', status: 'active' },
+		{ handle: { id: 'distant-person' }, actor: actors[ 2 ].handle, faction: 'protester', status: 'active' } ];
+	const observation = ( injured ) => ( { actors, people: people.map( ( person ) => person.actor === actors[ 0 ].handle
+		? { ...person, status: injured ? 'injured' : 'active' } : person ) } );
+	const context = { time: 20, observation: observation( false ), signal: new AbortController().signal,
+		timeline: { after() { return { state: 'pending', cancel() {} }; } }, presentation: { notice: ( ...args ) => notices.push( args ) },
+		crowd: { nudge: ( actor, options ) => { nudge.push( [ actor.id, options ] ); return { status: 'completed', value: { actor, people: 1 } }; }, setMode() { return { status: 'completed' }; } },
+	};
+	behavior.start( context );
+	const first = { ...observation( true ), sequence: 2 };
+	behavior.observe( context, first ); behavior.observe( context, { ...first, sequence: 3 } );
+	assert.deepEqual( nudge, [ [ 'hurt', { agitation: 0.35, resolve: 0.05 } ], [ 'neighbor', { agitation: 0.175 } ] ] );
+	assert.equal( notices.length, 1 );
+
+} );
+
+test( 'Clash candidate preserves source setup, timed waves, cordons and three-leg march route', async () => {
+
+	const { definition, director } = clashCandidate(), spawns = [], orders = [], timers = [], centers = new Map();
+	const context = { time: 0, signal: new AbortController().signal, random: () => 0.5, metrics: { clashPressure: 0 },
+		presentation: { focus() {}, notice() {} }, timeline: { after: ( seconds, callback ) => { timers.push( { seconds, callback } ); return { state: 'pending', cancel() {} }; } },
+		spawn: Object.fromEntries( [ 'crowd', 'squad', 'vehicle', 'bystanders' ].map( ( kind ) => [ kind, ( options ) => {
+			const actor = { id: options.id, kind: kind === 'bystanders' || kind === 'crowd' ? 'crowd' : kind, run: 1 };
+			spawns.push( { kind, options, actor } ); centers.set( actor.id, [ 0, 0 ] );
+			return { settled: Promise.resolve( { status: 'completed', value: actor } ) };
+		} ] ) ),
+		movement: { move: ( actor, at, options ) => {
+			orders.push( { actor, at, options } );
+			return { settled: Promise.resolve( { status: 'completed', value: {} } ) };
+		} },
+		actors: { get: ( actor ) => ( { handle: actor, alive: 100, center: centers.get( actor.id ) ?? null } ) },
+	};
+	await definition.setup( context );
+	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'crowd' && spawn.options.id === 'march' )[ 0 ].options.people, 2600 );
+	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'crowd' && spawn.options.id.startsWith( 'counter-' ) ).length, 15 );
+	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'squad' ).length, 10 );
+	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'vehicle' ).length, 3 );
+	assert.equal( spawns.find( ( spawn ) => spawn.kind === 'bystanders' ).options.people, 2000 );
+	assert.equal( definition.objectives[ 0 ].kind, 'prevent-clash' );
+	await director.start( context );
+	assert.deepEqual( timers.map( ( timer ) => timer.seconds ), [ 2, 40, 170, 200, 390, 420 ] );
+	timers.find( ( timer ) => timer.seconds === 40 ).callback( context );
+	await Promise.resolve();
+	let marchOrders = orders.filter( ( order ) => order.actor.id === 'march' );
+	assert.deepEqual( marchOrders[ 0 ], { actor: spawns.find( ( spawn ) => spawn.options.id === 'march' ).actor,
+		at: [ - 225, 65 ], options: { radius: 15 } } );
+	centers.set( 'march', [ - 225, 65 ] ); context.time = 41;
+	director.update( context, 1 / 60 ); await Promise.resolve();
+	marchOrders = orders.filter( ( order ) => order.actor.id === 'march' );
+	assert.deepEqual( marchOrders[ 1 ], { actor: marchOrders[ 0 ].actor, at: [ - 314, 100 ], options: { radius: 15 } } );
+	centers.set( 'march', [ - 314, 100 ] );
+	director.update( context, 1 / 60 ); await Promise.resolve();
+	marchOrders = orders.filter( ( order ) => order.actor.id === 'march' );
+	assert.deepEqual( marchOrders[ 2 ], { actor: marchOrders[ 0 ].actor, at: [ - 450, - 80 ], options: { radius: 30 } } );
+
+} );
+
 test( 'invalid score output fails without publishing or saving a malformed result', async () => {
 
 	const { runtime, finished, failures } = fixture( scenario( { score: () => ( { stars: 4, lines: [] } ),
@@ -533,5 +877,155 @@ test( 'a scoring callback exception fails the run before publishing a result', a
 	await runtime.setup(); runtime.observe( {} ); runtime.start(); runtime.update( 1 );
 	assert.equal( runtime.state, 'failed' ); assert.equal( finished.length, 0 );
 	assert.match( failures[ 0 ].message, /scenario\.score: score unavailable/ );
+
+} );
+
+test( 'ordered outcome rules use first-match precedence and preserve default objective outcomes', async () => {
+
+	const order = [];
+	const first = defineOutcome( { id: 'breach', evaluate: ( context ) => {
+
+		order.push( 'breach' );
+		return context.time >= 1 ? { win: false, reason: 'Breached.' } : null;
+
+	} } );
+	const second = defineOutcome( { id: 'evacuation', evaluate: () => {
+
+		order.push( 'evacuation' ); return { win: false, reason: 'Blocked.' };
+
+	} } );
+	const { runtime, finished } = fixture( scenario( { outcomes: [ first, second ], objectives: [ survive( { id: 'hold', seconds: 10 } ) ] } ) );
+	await runtime.setup(); runtime.observe( {} ); runtime.start(); runtime.update( 1 );
+	assert.deepEqual( order, [ 'breach' ] ); assert.equal( runtime.result.reason, 'Breached.' );
+	assert.equal( finished.length, 1 );
+
+} );
+
+test( 'behavior crowd controls are owner-scoped and stop with their lifetime', async () => {
+
+	let crowdContext, actor;
+	const attachment = defineBehavior( { id: 'crowd-control', create: () => ( { start( ctx ) { crowdContext = ctx; actor = ctx.actors.resolve( 'march' ); } } ) } )( { id: 'controller' } );
+	const { runtime } = fixture( scenario( { setup( ctx ) { ctx.spawn.crowd( { id: 'march', at: 'square' } ); },
+		behaviors: [ attachment ] } ), { spawn: async () => [], setCrowdMode: () => ( { status: 'completed' } ),
+		nudgeCrowd: () => ( { status: 'completed', people: 1 } ) } );
+	await runtime.setup(); runtime.observe( {} ); await runtime.start();
+	assert.equal( crowdContext.crowd.setMode( actor, 'riot' ).status, 'completed' );
+	crowdContext.complete();
+	assert.throws( () => crowdContext.crowd.setMode( actor, 'hold' ), /cannot mutate while completed/ );
+	assert.throws( () => crowdContext.crowd.nudge( actor, { agitation: 0.1 } ), /cannot mutate while completed/ );
+	runtime.dispose();
+
+} );
+
+test( 'behavior player actions carry semantic selections and owned coach cards clear on stop', async () => {
+
+	let received, card;
+	const training = defineBehavior( { id: 'action-card', create: () => ( {
+		start( ctx ) { ctx.presentation.coach( { chapter: '1. Controls', text: 'Select a squad.', step: 1, total: 2, onNext: () => ctx.complete() } ); },
+		onAction: ( ctx, action ) => { received = action; },
+	} ) } )( { id: 'training' } );
+	const displayed = [];
+	const { runtime } = fixture( scenario( { behaviors: [ training ] } ), { coach: ( value ) => displayed.push( value ) } );
+	await runtime.setup(); runtime.observe( {} ); await runtime.start();
+	const actor = Object.freeze( { id: 'squad-1', kind: 'squad', run: runtime.run } );
+	runtime.playerAction( Object.freeze( { type: 'select', how: 'click', selection: Object.freeze( [ actor ] ) } ) );
+	assert.equal( received.type, 'select' ); assert.equal( received.selection[ 0 ], actor );
+	runtime.playerAction( Object.freeze( { type: 'key', key: 'v', selection: Object.freeze( [] ) } ) );
+	assert.equal( received.type, 'key' ); assert.equal( received.key, 'v' );
+	card = displayed[ 0 ]; assert.equal( card.chapter, '1. Controls' ); card.onNext();
+	assert.equal( runtime.behaviors.instances.get( 'training' ).state, 'completed' );
+	assert.deepEqual( displayed.slice( 1 ), [ null ] ); runtime.dispose();
+
+} );
+
+test( 'Training preview advances the coach from semantic pan and selection actions', () => {
+
+	const { definition, curriculum } = trainingCurriculum(), cards = [], locks = new Set( definition.initiallyLockedCommands ), actors = new Map( [
+		[ 'squad-1', { id: 'squad-1', kind: 'squad', run: 1 } ], [ 'squad-2', { id: 'squad-2', kind: 'squad', run: 1 } ],
+	] );
+	let completed = false;
+	const context = { actors: { resolve: ( id ) => actors.get( id ) }, locations: { get: () => [ - 20, - 20 ] },
+		commands: { list: () => [ 'arrest', 'charge', 'gas', 'crew', 'water' ].filter( ( id ) => ! locks.has( id ) ).map( ( id ) => ( { id } ) ),
+			lock: ( id ) => locks.add( id ), unlock: ( id ) => locks.delete( id ) },
+		presentation: { coach: ( card ) => cards.push( card ) }, complete: () => { completed = true; }, signal: new AbortController().signal };
+	curriculum.start( context );
+	assert.deepEqual( [ ...locks ], definition.initiallyLockedCommands );
+	assert.match( cards.at( - 1 ).chapter, /Camera/ );
+	for ( let count = 0; count < 25; count ++ ) curriculum.onAction( context, { type: 'pan', selection: [] } );
+	assert.match( cards.at( - 1 ).chapter, /Camera/ );
+	assert.match( cards.at( - 1 ).text, /Scroll to zoom/ );
+	curriculum.onAction( context, { type: 'zoom', selection: [] } ); curriculum.onAction( context, { type: 'zoom', selection: [] } );
+	curriculum.onAction( context, { type: 'zoom', selection: [] } ); curriculum.onAction( context, { type: 'zoom', selection: [] } );
+	assert.match( cards.at( - 1 ).chapter, /Selection/ );
+	curriculum.onAction( context, { type: 'select', how: 'click', selection: [ actors.get( 'squad-1' ) ] } );
+	assert.match( cards.at( - 1 ).text, /Shift-click Squad 2/ );
+	cards.at( - 1 ).onSkip();
+	assert.match( cards.at( - 1 ).text, /Escape/ );
+	assert.equal( completed, false );
+
+} );
+
+test( 'Training final door test wins after the source hold duration with no sampled pressure', async () => {
+
+	const { definition, curriculum } = trainingCurriculum(), cards = [], actors = new Map(), unlocked = new Set( definition.initiallyLockedCommands );
+	const operation = ( id, kind ) => {
+		const actor = Object.freeze( { id, kind, run: 1 } ); actors.set( id, actor );
+		return { settled: Promise.resolve( { status: 'completed', value: actor } ) };
+	};
+	const setupContext = { locations: { get: ( id ) => id === 'square' ? [ - 40, - 10 ] : [ 0, 0 ] }, spatial: { walkable: ( at ) => at },
+		presentation: { focus() {} }, spawn: { squad: ( options ) => operation( options.id, 'squad' ),
+			vehicle: ( options ) => operation( options.id, 'vehicle' ), crowd: ( options ) => operation( options.id, 'crowd' ),
+			bystanders: ( options ) => operation( options.id, 'crowd' ) } };
+	await definition.setup( setupContext );
+	let time = 0;
+	const context = { get time() { return time; }, get metrics() { return { counters: { injuriesByPolice: 0 } }; }, signal: new AbortController().signal,
+		actors: { resolve: ( id ) => actors.get( id ) }, commands: { list: () => [], lock: ( id ) => unlocked.add( id ), unlock: ( id ) => unlocked.delete( id ) },
+		locations: { get: () => [ 0, 0 ] }, spatial: { count: () => 0, walkable: ( at ) => at },
+		presentation: { coach: ( card ) => cards.push( card ), notice() {} },
+		spawn: { squad: ( options ) => operation( options.id, 'squad' ), crowd: ( options ) => operation( options.id, 'crowd' ) }, complete() {} };
+	curriculum.start( context );
+	for ( let index = 0; index < 30 && ! cards.at( - 1 ).chapter.includes( 'Final Test' ); index ++ ) {
+		const card = cards.at( - 1 ); ( card.onSkip ?? card.onNext )();
+	}
+	assert.match( cards.at( - 1 ).chapter, /Final Test/ );
+	time = 30; curriculum.update( context, 30 );
+	time = 240; curriculum.update( context, 210 );
+	assert.match( cards.at( - 1 ).text, /Training complete/ );
+	assert.deepEqual( definition.outcomes[ 0 ].evaluate( { time } ), { win: true, reason: 'The door held. Training complete.' } );
+	cards.at( - 1 ).onNext();
+	assert.equal( unlocked.size, 0 );
+
+} );
+
+test( 'Training final door test holds for 210 seconds and wins with three stars', async () => {
+
+	const { definition, curriculum } = trainingCurriculum(), cards = [], actors = new Map(), unlocked = new Set( definition.initiallyLockedCommands );
+	const operation = ( id, kind ) => {
+		const actor = Object.freeze( { id, kind, run: 1 } ); actors.set( id, actor );
+		return { settled: Promise.resolve( { status: 'completed', value: actor } ) };
+	};
+	await definition.setup( { locations: { get: () => [ - 40, - 10 ] }, spatial: { walkable: ( at ) => at }, presentation: { focus() {} },
+		spawn: { squad: ( options ) => operation( options.id, 'squad' ), vehicle: ( options ) => operation( options.id, 'vehicle' ),
+			crowd: ( options ) => operation( options.id, 'crowd' ), bystanders: ( options ) => operation( options.id, 'crowd' ) } } );
+	let time = 0, completed = false;
+	const context = { get time() { return time; }, get metrics() { return { opinion: 60, counters: { injuriesByPolice: 0 } }; }, signal: new AbortController().signal,
+		actors: { resolve: ( id ) => actors.get( id ) }, commands: { list: () => [], lock: ( id ) => unlocked.add( id ), unlock: ( id ) => unlocked.delete( id ) },
+		locations: { get: () => [ 0, 0 ] }, spatial: { count: () => 0, walkable: ( at ) => at },
+		presentation: { coach: ( card ) => cards.push( card ), notice() {} },
+		spawn: { squad: ( options ) => operation( options.id, 'squad' ), crowd: ( options ) => operation( options.id, 'crowd' ) }, complete: () => { completed = true; } };
+	curriculum.start( context );
+	for ( let index = 0; index < 30 && ! cards.at( - 1 ).chapter.includes( 'Final Test' ); index ++ ) {
+		const card = cards.at( - 1 ); ( card.onSkip ?? card.onNext )();
+	}
+	time = 30; curriculum.update( context, 30 );
+	time = 239.99; curriculum.update( context, 209.99 );
+	assert.equal( definition.outcomes[ 0 ].evaluate( { time } ), null );
+	time = 240; curriculum.update( context, 0.01 );
+	assert.deepEqual( definition.outcomes[ 0 ].evaluate( { time } ), { win: true, reason: 'The door held. Training complete.' } );
+	const scoring = definition.score( { win: true, metrics: { opinion: 60, counters: { injuriesByPolice: 0, arrests: 0 } } } );
+	assert.equal( scoring.stars, 3 );
+	cards.at( - 1 ).onNext();
+	assert.equal( completed, true );
+	assert.equal( cards.at( - 1 ), null );
 
 } );

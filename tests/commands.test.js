@@ -161,6 +161,23 @@ test( 'owner stop during attempted/accepted events leaves no reservation or engi
 
 } );
 
+test( 'command locks are hidden, reject direct execution and release only with their owner', async () => {
+
+	const { commands, runtime, handle } = commandFixture();
+	runtime.behaviors = { writable: ( owner ) => assert.ok( [ 'starting', 'active' ].includes( owner.state ) ) };
+	const first = { id: 'first', state: 'active', operations: new Set() }, second = { id: 'second', state: 'active', operations: new Set() };
+	const firstCommands = commands.context( first ), secondCommands = commands.context( second );
+	firstCommands.lock( 'charge' ); secondCommands.lock( 'charge' );
+	assert.equal( commands.list().some( ( command ) => command.id === 'charge' ), false );
+	assert.equal( ( await commands.execute( null, 'charge', { at: [ 0, 0 ], selection: [ handle ] } ).settled ).code, 'COMMAND_LOCKED' );
+	commands.releaseOwner( first );
+	assert.equal( commands.list().some( ( command ) => command.id === 'charge' ), false );
+	secondCommands.unlock( 'charge' );
+	assert.equal( commands.list().some( ( command ) => command.id === 'charge' ), true );
+	assert.throws( () => firstCommands.lock( 'unknown' ), /unknown command/ );
+
+} );
+
 test( 'shield push yields the line order without dismantling its applied cordon', async () => {
 
 	const { commands, runtime, handle, pending } = commandFixture();
@@ -252,5 +269,28 @@ test( 'crew command accepts only one registered police-patrol vehicle', async ()
 	await Promise.resolve(); pending[ 0 ].resolve( {} );
 	assert.equal( ( await operation.settled ).status, 'completed' );
 	assert.equal( commands.list().find( ( command ) => command.id === 'crew' ).immediate, true );
+
+} );
+
+test( 'firearms cannot be invoked by a behavior without player confirmation', async () => {
+
+	const { commands, handle, pending } = commandFixture( policeCommands( { firearms: true } ), {} );
+	const outcome = await commands.execute( { id: 'behavior', state: 'active', operations: new Set() }, 'firearms',
+		{ at: [ 0, 0 ], selection: [ handle ] }, 'behavior' ).settled;
+	assert.deepEqual( outcome, { status: 'rejected', code: 'CONFIRMATION_REQUIRED' } );
+	assert.equal( ( await commands.execute( null, 'firearms', { at: [ 0, 0 ], selection: [ handle ] }, 'player' ).settled ).code, 'CONFIRMATION_REQUIRED' );
+	const confirmed = commands.execute( null, 'firearms', { at: [ 0, 0 ], selection: [ handle ] }, 'confirmed-player' );
+	await Promise.resolve(); pending[ 0 ].resolve( {} );
+	assert.equal( ( await confirmed.settled ).status, 'completed' );
+	assert.equal( pending.length, 1 );
+
+} );
+
+test( 'firearms are opt-in and appear as an explicit confirmed standard command', () => {
+
+	assert.equal( policeCommands().some( ( command ) => command.id === 'firearms' ), false );
+	const command = policeCommands( { firearms: true } ).find( ( entry ) => entry.id === 'firearms' );
+	assert.equal( command.resource, null );
+	assert.equal( Object.hasOwn( command, 'danger' ), false );
 
 } );

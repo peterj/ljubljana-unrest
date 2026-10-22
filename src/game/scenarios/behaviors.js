@@ -21,7 +21,7 @@ export class BehaviorHost {
 				throw new Error( `behavior.${attachment.id}.create: must synchronously return fresh hooks` );
 
 			}
-			fields( hooks, [ 'start', 'update', 'observe', 'onEvent', 'stop' ], `behavior.${attachment.id}.hooks` );
+			fields( hooks, [ 'start', 'update', 'observe', 'onEvent', 'onAction', 'stop' ], `behavior.${attachment.id}.hooks` );
 			for ( const [ name, hook ] of Object.entries( hooks ) ) check( typeof hook === 'function', `behavior.${attachment.id}.${name}`, 'must be a function' );
 			const instance = { id: attachment.id, state: 'attached', hooks, controller: new AbortController(), operations: new Set(), timers: [] };
 			instance.context = Object.freeze( Object.create( this.runtime.context, Object.fromEntries( Object.entries( {
@@ -31,6 +31,11 @@ export class BehaviorHost {
 				protected: this.runtime.identity.context( instance ),
 				vehicles: this.runtime.transport.context( instance ),
 				commands: this.runtime.commands.context( instance ),
+				convoys: this.runtime.convoys.context( instance ),
+				crowd: Object.freeze( {
+					setMode: ( actor, mode ) => { this.writable( instance ); return this.runtime.context.crowd.setMode( actor, mode ); },
+					nudge: ( actor, options ) => { this.writable( instance ); return this.runtime.context.crowd.nudge( actor, options ); },
+				} ),
 				presentation: Object.freeze( { focus: ( at, zoom ) => {
 
 					this.writable( instance ); this.runtime.context.presentation.focus( at, zoom );
@@ -38,6 +43,10 @@ export class BehaviorHost {
 				}, notice: ( text, kind, at ) => {
 
 					this.writable( instance ); this.runtime.context.presentation.notice( text, kind, at );
+
+				}, coach: ( card ) => {
+
+					this.writable( instance ); this.runtime.showCoach( instance, card );
 
 				} } ),
 				spawn: Object.freeze( {
@@ -169,6 +178,8 @@ export class BehaviorHost {
 		if ( ! [ 'attached', 'starting', 'active' ].includes( instance.state ) ) return;
 		instance.state = reason === 'completed' ? 'completed' : 'stopped';
 		instance.controller.abort( reason );
+		this.runtime.clearCoach( instance );
+		this.runtime.commands.releaseOwner( instance );
 		for ( const timer of instance.timers ) if ( timer.state === 'pending' ) timer.state = 'cancelled';
 		instance.timers = [];
 		for ( const operation of [ ...instance.operations ] ) operation.cancel( reason );

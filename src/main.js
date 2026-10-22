@@ -292,6 +292,7 @@ class Game {
 			if ( g.snatchPlan ) {
 
 				const end = this.world.snatchStep( g, m.t );
+				if ( end ) m.onSnatchOutcome?.( g, t, end );
 				if ( end === 'abandoned' ) m.event( `${g.label}: lost the leader of ${t.label}, back to post`, 'warn', g.center );
 				else if ( end && ! t.snatchReported ) {
 
@@ -614,7 +615,7 @@ class Game {
 			}
 
 			const c = this.mission.commands().find( ( q ) => q.key === k );
-			if ( ! c?.run ) return;
+			if ( ! c?.run ) { if ( this.mission.constructor.sdkScenario ) this.emit( 'key', { key: k } ); return; }
 			// keyboard: targeted commands fire at the cursor right away (the water cannon is aimed with the mouse)
 			if ( c.run.length === 0 || c.aim ) { this.command( k ); return; }
 			this.armed = k;

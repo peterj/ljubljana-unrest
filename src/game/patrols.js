@@ -28,7 +28,7 @@ export class Patrols {
 
 	// civil: an unmarked car (no beacon, no siren), e.g. the protesters' rescue car; water: a water cannon truck (no crew,
 	// aimed with W, see Mission.spray)
-	async add( { at, heading, label, crew = CREW, selectable = true, civil = false, water = false } ) {
+	async add( { at, heading, label, crew = CREW, selectable = true, civil = false, water = false, random = Math.random } ) {
 
 		if ( this.world.convoyVehicles.length + this.cars.length >= MAX_VEHICLES ) throw new Error( 'vehicle capacity exceeded' );
 		const n = this.cars.filter( ( c ) => ! c.water === ! water ).length + 1;
@@ -44,7 +44,7 @@ export class Patrols {
 		if ( crew ) {
 
 			const side = [ p[ 0 ] + Math.cos( heading + Math.PI / 2 ) * 5, p[ 1 ] + Math.sin( heading + Math.PI / 2 ) * 5 ];
-			car.crew = await this.world.squad( { kind: 'crew', label: `${car.label} crew`, at: side, n: crew } );
+			car.crew = await this.world.squad( { kind: 'crew', label: `${car.label} crew`, at: side, n: crew, random } );
 			car.crew.car = car;
 
 		}

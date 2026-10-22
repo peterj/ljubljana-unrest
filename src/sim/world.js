@@ -3,8 +3,8 @@
 import { FACTION, MODE, ROLE } from './crowd.js';
 import { Intel } from './intel.js';
 
-export const rand = ( a, b ) => a + Math.random() * ( b - a );
-export const pick = ( arr ) => arr[ Math.floor( Math.random() * arr.length ) ];
+export const rand = ( a, b, random = Math.random ) => a + random() * ( b - a );
+export const pick = ( arr, random = Math.random ) => arr[ Math.floor( random() * arr.length ) ];
 export const WATER_JET = 10, WATER_RANGE = 28; // water cannon truck: seconds per spray, reach (m)
 // shield push: how far a cordon advances at most (m), its pace (m/s), how far the line's anchor may run ahead of its
 // officers before it waits for them (m), and how long it leans on a crowd it cannot move before it stops (s);
@@ -62,11 +62,11 @@ export class World {
 	cctv( x, y ) { return this.city.cctvData ? this.grid( this.city.cctvData, this.city.cctv, x, y ) % 255 : 0; }
 
 	// random walkable point near (cx, cy); streetOnly keeps it out of courtyards
-	spot( cx, cy, r, streetOnly = true ) {
+	spot( cx, cy, r, streetOnly = true, random = Math.random ) {
 
 		for ( let t = 0; t < 400; t ++ ) {
 
-			const a = Math.random() * Math.PI * 2, d = Math.sqrt( Math.random() ) * r * ( 1 + t / 100 );
+			const a = random() * Math.PI * 2, d = Math.sqrt( random() ) * r * ( 1 + t / 100 );
 			const x = cx + Math.cos( a ) * d, y = cy + Math.sin( a ) * d;
 			if ( this.sdf( x, y ) > 0.7 && this.cost( x, y ) < ( streetOnly ? 21 : 255 ) ) return [ x, y ];
 
@@ -221,21 +221,21 @@ export class World {
 	// A bloc of civilian groups (protesters / counter-protesters / bystanders), each with a leader.
 	async bloc( { faction = FACTION.PROTESTER, kind, label, at, n, groupSize = 100, spread = 40, goal, goalR = 25,
 		layer, mode = MODE.MARCH, agitation = [ 0.05, 0.25 ], resolve = [ 0.6, 1.0 ], morale = 0.5, speed = [ 0.85, 1.15 ],
-		sitters = false, bikes = 0 } ) { // bikes: share of the bloc on bicycles (0..1)
+		sitters = false, bikes = 0, random = Math.random } ) { // bikes: share of the bloc on bicycles (0..1)
 
 		if ( layer === undefined ) layer = goal ? await this.fieldTo( goal[ 0 ], goal[ 1 ], goalR ) : 0;
 		const out = [];
 		for ( let k = 0; k * groupSize < n; k ++ ) {
 
 			const g = this.newGroup( faction, kind, label );
-			const [ gx, gy ] = this.spot( at[ 0 ], at[ 1 ], spread );
+			const [ gx, gy ] = this.spot( at[ 0 ], at[ 1 ], spread, true, random );
 			const size = Math.min( groupSize, n - k * groupSize );
 			const agents = [];
 			for ( let m = 0; m < size; m ++ ) {
 
-				const [ x, y ] = this.spot( gx, gy, ( 4 + Math.sqrt( size ) * 0.9 ) * ( bikes ? 1.7 : 1 ) );
-				const role = ( sitters ? ROLE.SITTER : m === 0 && faction !== FACTION.BYSTANDER ? ROLE.LEADER : ROLE.MEMBER ) + ( Math.random() < bikes ? ROLE.BIKE : 0 );
-				agents.push( { x, y, faction, group: g.id, role, agitation: rand( ...agitation ), resolve: rand( ...resolve ) } );
+				const [ x, y ] = this.spot( gx, gy, ( 4 + Math.sqrt( size ) * 0.9 ) * ( bikes ? 1.7 : 1 ), true, random );
+				const role = ( sitters ? ROLE.SITTER : m === 0 && faction !== FACTION.BYSTANDER ? ROLE.LEADER : ROLE.MEMBER ) + ( random() < bikes ? ROLE.BIKE : 0 );
+				agents.push( { x, y, faction, group: g.id, role, agitation: rand( ...agitation, random ), resolve: rand( ...resolve, random ) } );
 
 			}
 
@@ -243,7 +243,7 @@ export class World {
 			g.members = agents.filter( ( a ) => a.index !== undefined ).map( ( a ) => a.index );
 			g.leader = g.members[ 0 ];
 			g.mode = mode;
-			this.crowd.setGroup( g.id, { leader: g.leader, speed: rand( ...speed ), mode, scale: 1, morale } );
+			this.crowd.setGroup( g.id, { leader: g.leader, speed: rand( ...speed, random ), mode, scale: 1, morale } );
 			this.setLayer( g, layer );
 			out.push( g );
 
@@ -279,7 +279,7 @@ export class World {
 	}
 
 	// Police squad in formation around (ax, ay): offsets relative to the anchor.
-	async squad( { kind = 'squad', label, at, n = 24, offsets, aggression = 0.4, mode = MODE.FORMATION } ) {
+	async squad( { kind = 'squad', label, at, n = 24, offsets, aggression = 0.4, mode = MODE.FORMATION, random = Math.random } ) {
 
 		const [ ax, ay ] = this.roadSpot( ...at ) ?? at;
 		offsets = offsets ?? World.block( n );
@@ -287,7 +287,7 @@ export class World {
 		const agents = [];
 		for ( let m = 0; m < offsets.length / 2; m ++ ) {
 
-			const [ x, y ] = this.spot( ax + offsets[ m * 2 ], ay + offsets[ m * 2 + 1 ], 3 );
+			const [ x, y ] = this.spot( ax + offsets[ m * 2 ], ay + offsets[ m * 2 + 1 ], 3, true, random );
 			agents.push( { x, y, faction: FACTION.POLICE, group: g.id, role: m === 0 ? ROLE.LEADER : ROLE.MEMBER, ox: offsets[ m * 2 ], oy: offsets[ m * 2 + 1 ] } );
 
 		}

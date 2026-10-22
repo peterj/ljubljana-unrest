@@ -7,6 +7,7 @@ const catalog = Object.freeze( {
 	kettle: Object.freeze( { key: 'k', label: 'Kettle', needsSelection: true, escalation: 1 } ),
 	'shield-push': Object.freeze( { key: 's', label: 'Shield push', needsSelection: true, escalation: 1, aim: true } ),
 	crew: Object.freeze( { key: 'u', label: 'Crew in / out', needsSelection: true, escalation: 0, forCars: true, immediate: true } ),
+	firearms: Object.freeze( { key: 'o', label: 'Open fire', needsSelection: true, escalation: 4, danger: true, immediate: true } ),
 	water: Object.freeze( { key: 'w', label: 'Water cannon', needsSelection: true, escalation: 3, aim: true, forCars: true } ),
 	gas: Object.freeze( { key: 'g', label: 'Tear gas', needsSelection: false, escalation: 2 } ),
 	reinforce: Object.freeze( { key: 'f', label: 'Reinforce', needsSelection: false, escalation: 0 } ),
@@ -14,10 +15,12 @@ const catalog = Object.freeze( {
 
 export function policeCommands( options = {} ) {
 
-	fields( options, [ 'gas', 'reinforce', 'water', 'crew' ], 'policeCommands' );
+	fields( options, [ 'gas', 'reinforce', 'water', 'crew', 'firearms' ], 'policeCommands' );
 	check( options.crew === undefined || typeof options.crew === 'boolean', 'policeCommands.crew', 'must be a boolean' );
+	check( options.firearms === undefined || typeof options.firearms === 'boolean', 'policeCommands.firearms', 'must be a boolean' );
 	const values = [ 'charge', 'arrest', 'snatch', 'kettle', 'shield-push' ].map( ( id ) => Object.freeze( { kind: 'police-command', id, resource: null } ) );
 	if ( options.crew ) values.push( Object.freeze( { kind: 'police-command', id: 'crew', resource: null } ) );
+	if ( options.firearms ) values.push( Object.freeze( { kind: 'police-command', id: 'firearms', resource: null } ) );
 	for ( const id of [ 'gas', 'reinforce', 'water' ] ) if ( options[ id ] !== undefined ) {
 
 		check( typeof options[ id ] === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test( options[ id ] ), `policeCommands.${id}`, 'must be a resource ID' );
@@ -53,24 +56,66 @@ export class CommandHost {
 		this.definitions = new Map( runtime.definition.commands.map( ( definition ) => [ definition.id, definition ] ) );
 		this.active = new Set();
 		this.claims = new Map();
+		this.locks = new Map();
+		this.initialOwner = Object.freeze( { id: 'scenario-initial-command-locks' } );
+		for ( const id of runtime.definition.initiallyLockedCommands ?? [] ) this.locks.set( id, new Set( [ this.initialOwner ] ) );
 		this.escalation = 0;
 
 	}
 
 	list() {
 
-		return Object.freeze( [ ...this.definitions.values() ].map( ( definition ) => Object.freeze( { ...definition, ...catalog[ definition.id ] } ) ) );
+		return Object.freeze( [ ...this.definitions.values() ].filter( ( definition ) => ! this.locks.get( definition.id )?.size )
+			.map( ( definition ) => Object.freeze( { ...definition, ...catalog[ definition.id ] } ) ) );
 
 	}
 
 	context( owner = null ) {
 
-		return Object.freeze( { list: () => this.list(), execute: ( id, options ) => {
+		const context = { list: () => this.list(), execute: ( id, options ) => {
 
 			if ( owner ) this.runtime.behaviors.writable( owner );
 			return this.execute( owner, id, options, 'behavior' );
 
-		} } );
+		} };
+		if ( owner ) {
+
+			context.lock = ( id ) => this.lock( owner, id );
+			context.unlock = ( id ) => this.unlock( owner, id );
+
+		}
+		return Object.freeze( context );
+
+	}
+
+	lock( owner, id ) {
+
+		this.runtime.behaviors.writable( owner );
+		check( this.definitions.has( id ), 'commands.lock.id', `unknown command '${id}'` );
+		const owners = this.locks.get( id ) ?? new Set();
+		owners.add( owner ); this.locks.set( id, owners );
+
+	}
+
+	unlock( owner, id ) {
+
+		this.runtime.behaviors.writable( owner );
+		check( this.definitions.has( id ), 'commands.unlock.id', `unknown command '${id}'` );
+		const owners = this.locks.get( id );
+		owners?.delete( owner );
+		owners?.delete( this.initialOwner );
+		if ( ! owners?.size ) this.locks.delete( id );
+
+	}
+
+	releaseOwner( owner ) {
+
+		for ( const [ id, owners ] of this.locks ) {
+
+			owners.delete( owner );
+			if ( ! owners.size ) this.locks.delete( id );
+
+		}
 
 	}
 
@@ -95,8 +140,10 @@ export class CommandHost {
 				settled: Promise.resolve( Object.freeze( { status: 'rejected', code } ) ), cancel: () => Object.freeze( { status: 'already-settled' } ) } );
 
 		};
+		if ( this.locks.get( id )?.size ) return reject( 'COMMAND_LOCKED' );
 		if ( owner && ! [ 'starting', 'active' ].includes( owner.state ) ) return reject( 'OWNER_STOPPED' );
 		if ( ! [ 'starting', 'running', 'paused' ].includes( this.runtime.state ) ) return reject( 'SCENARIO_STOPPED' );
+		if ( id === 'firearms' && source !== 'confirmed-player' ) return reject( 'CONFIRMATION_REQUIRED' );
 		if ( info.needsSelection && ! selection.length ) return reject( 'SELECTION_REQUIRED' );
 		if ( new Set( selection ).size !== selection.length ) return reject( 'INVALID_SELECTION' );
 		const actors = [];
@@ -139,7 +186,7 @@ export class CommandHost {
 		}
 		const controller = new AbortController();
 		let resolve, done = false, timer;
-		const request = Object.freeze( { id, at, selection, source, ...( target ? { target } : {} ) } );
+		const request = Object.freeze( { id, at, selection, source, operation: operationId, ...( target ? { target } : {} ) } );
 		const current = () => ! controller.signal.aborted && ( ! owner || [ 'starting', 'active' ].includes( owner.state ) ) && [ 'starting', 'running', 'paused' ].includes( this.runtime.state )
 			&& actors.every( ( actor ) => this.runtime.actors.get( actor.handle.id ) === actor && this.claims.get( actor.handle ) === operation );
 		const settle = ( outcome ) => {

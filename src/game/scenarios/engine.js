@@ -1,5 +1,7 @@
-import { FACTION, MODE, ROLE, MAX_EDITS } from '../../sim/crowd.js';
+import { FACTION, MODE, ROLE, STAT, MAX_EDITS } from '../../sim/crowd.js';
 import { rand, WATER_JET, World } from '../../sim/world.js';
+import { Mission } from '../mission.js';
+import { Convoy } from '../convoy.js';
 import { check } from './definition.js';
 
 export class ScenarioEngine {
@@ -9,6 +11,7 @@ export class ScenarioEngine {
 		this.mission = mission;
 		this.queue = Promise.resolve();
 		this.nextReinforcement = 1;
+		this.snatchTasks = new Map();
 
 	}
 
@@ -16,6 +19,47 @@ export class ScenarioEngine {
 	landmark( name ) { return this.mission.world.marks[ name ]; }
 	walkable( at, radius ) { return this.mission.world.roadSpot( ...at, radius ); }
 	notice( text, kind, at ) { this.mission.event( text, kind, at ); }
+	coach( card ) { this.mission.game.hud.coach( card ); }
+
+	createConvoy( options ) {
+
+		const route = this.mission.city.route;
+		check( Array.isArray( route ) && route.length >= 2, 'convoy.route', 'the selected city has no convoy route' );
+		const convoy = new Convoy( route, options );
+		this.mission.game.scene.add( convoy.group );
+		return convoy;
+
+	}
+
+	readConvoy( convoy ) {
+
+		return { distance: convoy.s, progress: convoy.progress, speed: convoy.speed, integrity: convoy.integrity,
+			blockedFor: convoy.blockedFor, blockers: convoy.blockers, attackers: convoy.attackers,
+			moving: convoy.moving, arrived: convoy.arrived };
+
+	}
+
+	convoyPoint( convoy, distance ) { return convoy.at( distance ); }
+
+	departConvoy( convoy ) { convoy.moving = true; }
+
+	updateConvoy( convoy, dt ) { convoy.update( dt, this.mission.stats ); }
+
+	updateConvoyWalls( convoys ) { this.mission.world.convoyVehicles = convoys.flatMap( ( convoy ) => convoy.vehicles() ); }
+
+	releaseConvoy( convoy ) {
+
+		this.mission.game.scene.remove( convoy.group );
+		const resources = new Set();
+		convoy.group.traverse( ( object ) => {
+
+			if ( object.geometry ) resources.add( object.geometry );
+			for ( const material of Array.isArray( object.material ) ? object.material : object.material ? [ object.material ] : [] ) resources.add( material );
+
+		} );
+		for ( const resource of resources ) resource.dispose();
+
+	}
 
 	target( name ) {
 
@@ -36,10 +80,35 @@ export class ScenarioEngine {
 	readMetrics() {
 
 		const { opinion, counters } = this.mission;
-		return Object.freeze( { opinion, counters: Object.freeze( { injuriesByPolice: counters.injByPolice,
+		return Object.freeze( { opinion, escalation: this.mission.escalation ?? 0, clashContacts: this.mission.stats?.[ STAT.CLASH ] ?? 0,
+			counters: Object.freeze( { injuriesByPolice: counters.injByPolice,
 			otherInjuries: counters.injOther, officersInjured: counters.injPolice, arrests: counters.arrested,
 			sitterArrests: counters.arrestedSitters, peopleGone: counters.gone, gasUsed: counters.gas,
 			shotsFired: counters.shot ?? 0 } ) } );
+
+	}
+
+	setCrowdMode( groups, mode ) {
+
+		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
+		this.mission.world.setMode( groups, { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT }[ mode ] );
+		return { status: 'completed' };
+
+	}
+
+	nudgeCrowd( groups, { agitation, resolve } ) {
+
+		const { world, crowd } = this.mission;
+		if ( ! world.intel ) return { status: 'rejected', code: 'OBSERVATION_UNAVAILABLE' };
+		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
+		let people = 0;
+		for ( const group of groups ) for ( const member of group.members ) if ( world.intel.faction( member ) === group.faction ) {
+
+			crowd.nudge( member, agitation, resolve );
+			people ++;
+
+		}
+		return { status: 'completed', people };
 
 	}
 
@@ -53,7 +122,7 @@ export class ScenarioEngine {
 
 	async allocate( kind, options, signal ) {
 
-		const world = this.mission.world, crowd = this.mission.crowd;
+		const world = this.mission.world, crowd = this.mission.crowd, random = () => this.mission.runtime.random();
 		signal.throwIfAborted();
 		if ( kind === 'vehicle' ) {
 
@@ -62,7 +131,7 @@ export class ScenarioEngine {
 			const water = options.type === 'water-cannon';
 			const patrol = options.type === 'police-patrol', crew = patrol ? options.crew : 0;
 			check( crowd.count + crew <= crowd.N && world.groups.length + Number( crew > 0 ) <= crowd.G, 'spawn.vehicle.crew', 'crew capacity exceeded' );
-			return world.patrols.add( { at, label: options.label ?? options.id, crew, selectable: water || patrol, civil: ! water && ! patrol, water } );
+			return world.patrols.add( { at, label: options.label ?? options.id, crew, selectable: water || patrol, civil: ! water && ! patrol, water, random } );
 
 		}
 		if ( kind === 'bystanders' ) return this.allocateBystanders( options, signal );
@@ -75,11 +144,11 @@ export class ScenarioEngine {
 			const layer = await world.fieldTo( ...( options.goal ?? options.at ), options.goal ? options.goalRadius : 30 );
 			signal.throwIfAborted();
 			const groups = kind === 'squad'
-				? [ await world.squad( { label: options.id, at: options.at, n: options.people } ) ]
+				? [ await world.squad( { label: options.id, at: options.at, n: options.people, random } ) ]
 				: await world.bloc( { kind: 'crowd', label: options.label ?? options.id, at: options.at, n: options.people,
 					groupSize: options.groupSize, spread: options.spread, layer, goal: options.goal, goalR: options.goalRadius,
 					mode: { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT }[ options.mode ], agitation: options.agitation,
-					morale: options.morale, bikes: options.bikes, faction: { protester: FACTION.PROTESTER, bystander: FACTION.BYSTANDER, counter: FACTION.COUNTER }[ options.faction ] } );
+					morale: options.morale, bikes: options.bikes, random, faction: { protester: FACTION.PROTESTER, bystander: FACTION.BYSTANDER, counter: FACTION.COUNTER }[ options.faction ] } );
 			signal.throwIfAborted();
 			return groups;
 
@@ -94,7 +163,7 @@ export class ScenarioEngine {
 
 	async allocateBystanders( options, signal ) {
 
-		const { world, crowd, runtime } = this.mission, before = world.groups.length, groups = [];
+		const { world, crowd, runtime } = this.mission, before = world.groups.length, groups = [], random = () => runtime.random();
 		check( crowd.count + options.people <= crowd.N, 'spawn.people', 'agent capacity exceeded' );
 		check( world.groups.length + Math.ceil( options.people / options.groupSize ) <= crowd.G, 'spawn.people', 'group capacity exceeded' );
 		try {
@@ -106,11 +175,11 @@ export class ScenarioEngine {
 			for ( let offset = 0; offset < options.people; offset += options.groupSize ) {
 
 				signal.throwIfAborted();
-				const at = [ rand( minX + 80, maxX - 80 ), rand( minY + 80, maxY - 80 ) ];
+				const at = [ rand( minX + 80, maxX - 80, random ), rand( minY + 80, maxY - 80, random ) ];
 				const size = Math.min( options.groupSize, options.people - offset );
-				const layer = layers[ Math.floor( Math.random() * layers.length ) ];
+				const layer = layers[ Math.floor( random() * layers.length ) ];
 				groups.push( ...await world.bloc( { faction: FACTION.BYSTANDER, kind: 'bystanders', label: 'Onlookers', at,
-					n: size, groupSize: size, spread: options.spread, layer, speed: [ 0.7, 1.1 ] } ) );
+					n: size, groupSize: size, spread: options.spread, layer, speed: [ 0.7, 1.1 ], random } ) );
 
 			}
 			return groups;
@@ -240,6 +309,7 @@ export class ScenarioEngine {
 	applyMove( groups, prepared, request, valid ) {
 
 		const world = this.mission.world;
+		this.cancelSnatches( groups, 'squad received a movement order' );
 		if ( request.line ) return world.lineSquads( groups, request.line, request.at, world.intel?.pos, undefined, { layer: prepared.layer, valid } );
 		if ( groups[ 0 ].faction === FACTION.POLICE ) return world.moveSquads( groups, ...request.at, { layer: prepared.layer, valid } );
 		return world.march( groups, ...request.at, request.radius, { layer: prepared.layer, valid } );
@@ -264,6 +334,30 @@ export class ScenarioEngine {
 				crowd.setGroup( group.id, { mode: MODE.FORMATION, ax: group.center[ 0 ], ay: group.center[ 1 ], scale: 1 } );
 
 			} else world.setMode( [ group ], MODE.HOLD );
+
+		}
+
+	}
+
+	snatchOutcome( group, target, result ) {
+
+		const task = this.snatchTasks.get( group );
+		if ( ! task || task.targetGroup !== target ) return null;
+		this.snatchTasks.delete( group );
+		return { operation: task.operation, squad: task.squad, target: task.target,
+			type: result === 'abandoned' ? 'snatch.abandoned' : 'snatch.completed', result };
+
+	}
+
+	cancelSnatches( groups, reason ) {
+
+		this.mission.world.endSnatch?.( groups );
+		for ( const group of groups ) {
+
+			const task = this.snatchTasks.get( group );
+			if ( ! task ) continue;
+			this.snatchTasks.delete( group );
+			this.mission.runtime.event( 'snatch.cancelled', { operation: task.operation, squad: task.squad, target: task.target, reason } );
 
 		}
 
@@ -395,6 +489,7 @@ export class ScenarioEngine {
 		signal.throwIfAborted();
 		if ( request.id === 'gas' || request.id === 'shield-push' ) return {};
 		let actor = null, groups = selected.flat();
+		if ( request.id === 'firearms' ) return { groups, applied: false };
 		if ( request.id === 'water' ) {
 
 			const truck = groups[ 0 ];
@@ -411,22 +506,11 @@ export class ScenarioEngine {
 			return { truck, applied: false };
 
 		}
+		if ( request.id === 'firearms' ) return { groups, applied: false };
 		if ( request.id === 'snatch' ) {
 
 			if ( ! request.target ) return { status: 'rejected', code: 'TARGET_NOT_FOUND' };
-			let layer;
-			try {
-
-				layer = await world.fieldTo( ...request.target.position, 5 );
-				signal.throwIfAborted(); world.flow.retain( layer );
-				return { layer, groups, target: request.target, applied: false };
-
-			} catch ( error ) {
-
-				if ( layer !== undefined ) world.flow.release( layer );
-				throw error;
-
-			}
+			return { groups, target: request.target, applied: false };
 
 		}
 		if ( request.id === 'reinforce' ) {
@@ -475,6 +559,7 @@ export class ScenarioEngine {
 		if ( ! current() ) return { status: 'rejected', code: 'SUPERSEDED' };
 		const groups = prepared.groups ?? selected.flat();
 		let affected = groups;
+		if ( request.id !== 'snatch' && [ 'charge', 'arrest', 'kettle', 'shield-push' ].includes( request.id ) ) this.cancelSnatches( groups, `squad received ${request.id}` );
 		if ( ! [ 'gas', 'reinforce', 'water', 'crew' ].includes( request.id ) && groups.some( ( group ) => ! group.members.some( ( member ) => world.intel?.faction( member ) === FACTION.POLICE ) ) ) return { status: 'rejected', code: 'INVALID_SELECTION' };
 		let work;
 		let crewHandle = null;
@@ -488,6 +573,7 @@ export class ScenarioEngine {
 			affected = [];
 
 		}
+		else if ( request.id === 'firearms' ) Mission.prototype.openFire.call( this.mission, groups );
 		else if ( request.id === 'water' ) {
 
 			const truck = prepared.truck;
@@ -502,8 +588,14 @@ export class ScenarioEngine {
 			const person = runtime.identity.personRecord( prepared.target.person );
 			if ( person.actor !== prepared.target.actor || person.sample?.status !== 'active' || ! person.sample.leader || ! person.sample.identified ) return { status: 'rejected', code: 'TARGET_UNAVAILABLE' };
 			const targetGroup = person.backend.group;
-			for ( const group of groups ) group.snatch = targetGroup;
-			work = world.arrest( groups, ...prepared.target.position, 5, prepared.target.position, { layer: prepared.layer, valid: current } );
+			this.cancelSnatches( groups, 'squad assigned to another snatch' );
+			world.snatch( groups, targetGroup, this.mission.t );
+			for ( const group of groups ) {
+
+				const squad = [ ...runtime.actors.values() ].find( ( record ) => Array.isArray( record.backend ) && record.backend.includes( group ) )?.handle;
+				this.snatchTasks.set( group, { operation: request.operation, squad, target: prepared.target.person, targetGroup } );
+
+			}
 		}
 		else if ( request.id === 'shield-push' ) {
 
