@@ -124,12 +124,31 @@ button:disabled { opacity: 0.4; cursor: default; }
 #feed div.old { opacity: 0.45; }
 @keyframes slide { from { transform: translateX(-20px); opacity: 0; } }
 
+/* tutorial: the instruction card, and what it points at */
+#coach { top: 56px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100vw - 660px)); min-width: 300px; border-left: 3px solid var(--green); }
+#coach.fresh { animation: pulse 0.6s; }
+#coach .co-head { display: flex; justify-content: space-between; align-items: baseline; }
+#coach .co-head h2 { color: var(--green); margin: 0; }
+#coach .co-head span { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+#coach p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
+#coach b { color: var(--white); font-weight: 600; }
+#coach .co-go { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+#coach .co-go:empty { display: none; }
+#coach button { padding: 4px 12px; font-size: 12px; }
+#coach button.co-skip { color: var(--dim); }
+#coach button.primary { background: var(--green); border-color: var(--green); color: #04110a; font-weight: 600; }
+.coach-spot { outline: 2px solid var(--green); outline-offset: 2px; }
+#cmdList button.coach { border-color: var(--green); animation: coach 1.2s infinite; }
+@keyframes coach { 50% { background: rgba(79, 209, 139, 0.18); } }
+.side.tutorial { color: var(--green); }
+
 /* ------------------------------------------------------------- modal: menu, briefing, result */
 #modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(3, 4, 7, 0.72); backdrop-filter: blur(3px); padding: 16px; overflow-y: auto; }
 .card { background: var(--panel); border: 1px solid var(--line); max-width: 760px; width: 100%; padding: 22px 26px; }
 .card h1 { margin: 0; font-size: 26px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--white); }
 .card h1 span { color: var(--orange); }
 .card .sub { color: var(--dim); margin: 4px 0 16px; font-size: 13px; }
+.card .note { color: var(--amber); font-size: 12px; margin: 0 0 8px; overflow-wrap: anywhere; }
 .card .credit { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; letter-spacing: 0.06em; color: var(--dim); text-align: right; }
 .card .credit a { color: var(--orange); text-decoration: none; }
 .card .credit a:hover { text-decoration: underline; }

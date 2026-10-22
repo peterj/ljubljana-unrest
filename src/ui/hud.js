@@ -4,6 +4,23 @@ import { fmt } from '../game/mission.js';
 
 const $ = ( id ) => document.getElementById( id );
 const esc = ( s ) => String( s ).replace( /[&<>"]/g, ( c ) => ( { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ c ] ) );
+
+// mission text is data, not markup: everything is escaped except <b> and <i>, which are kept balanced
+export function richText( s ) {
+
+	const open = [];
+	const out = esc( s ).replace( /&lt;(\/?)(b|i)&gt;/g, ( _, close, tag ) => {
+
+		if ( ! close ) { open.push( tag ); return `<${tag}>`; }
+		if ( open.at( - 1 ) !== tag ) return ''; // a closer with no matching opener
+		open.pop();
+		return `</${tag}>`;
+
+	} );
+	return out + open.reverse().map( ( tag ) => `</${tag}>` ).join( '' );
+
+}
+
 const starStr = ( n ) => '★★★'.split( '' ).map( ( s, k ) => k < n ? s : `<span class="off">${s}</span>` ).join( '' );
 
 // what each order does, by side and key: the "How to play" table and the order panel's info box both read it.
@@ -18,7 +35,6 @@ const DESC = {
 		w: 'water cannon truck selected: shows its reach; hold the left button to aim, release to spray for 10 s (limited). Right-click drives the truck, Esc puts the cannon away',
 		f: 'fresh squad from the nearest police station, sent to the cursor', o: 'firearms — last resort, confirm dialog, caps the mission at 1★',
 		b: 'loudspeaker order over the crowd at the cursor: calmer groups go home, the hard core gets angrier. A group hears it once',
-		v: 'send the convoy off before its scheduled departure',
 		u: 'parked patrol car: crew gets out beside it, or nearby crew get back in (cars also pick up their crew when they drive off)' },
 	protest: { rmb: 'march the selected groups there', h: 'stop and hold where they stand', e: 'raise agitation and resolve. Again: push the police line (costs sympathy). Three times: storm it for 40 s (costs a lot)',
 		q: 'one level calmer: from storming to pushing, from pushing to marching, calms them down', d: 'scatter the group',
@@ -177,10 +193,31 @@ export class Hud {
 			b.querySelector( '.res' ).textContent = r ? ( r.ready > 0 ? fmt( r.ready ) : r.max > 20 ? '' : `${r.left}/${r.max}` ) : '';
 			b.classList.toggle( 'off', ! g.hasSelFor( c ) || !! ( r && ( r.left <= 0 || r.ready > 0 ) ) || ! c.run );
 			b.classList.toggle( 'armed', g.armed === c.key || ( c.key === 'l' && !! g.drawing ) );
+			b.classList.toggle( 'coach', !! m.coachKeys?.includes( c.key ) );
 
 		}
 
 		this.cmdInfo( m );
+
+	}
+
+	// the tutorial's instruction card: { chapter, text (<b>/<i> allowed), step, total, next?, onNext, onSkip?, spot? (a HUD element id to point at) }
+	coach( c ) {
+
+		const el = $( 'coach' );
+		document.querySelectorAll( '.coach-spot' ).forEach( ( q ) => q.classList.remove( 'coach-spot' ) );
+		el.hidden = ! c;
+		if ( ! c ) return;
+		if ( c.spot ) $( c.spot )?.classList.add( 'coach-spot' );
+		el.innerHTML = `<div class="co-head"><h2>${esc( c.chapter )}</h2><span>${c.step} / ${c.total}</span></div>
+			<p>${richText( c.text )}</p>
+			<div class="co-go">${c.onSkip ? '<button class="co-skip">Skip</button>' : ''}${c.next ? '<button class="co-next primary">Continue</button>' : ''}</div>`;
+		// blur: a focused button would also take the next Space / Enter meant for the game
+		el.querySelector( '.co-skip' )?.addEventListener( 'click', ( e ) => { e.currentTarget.blur(); c.onSkip(); } );
+		el.querySelector( '.co-next' )?.addEventListener( 'click', ( e ) => { e.currentTarget.blur(); c.onNext(); } );
+		el.classList.remove( 'fresh' );
+		void el.offsetWidth;
+		el.classList.add( 'fresh' );
 
 	}
 
@@ -213,15 +250,17 @@ export class Hud {
 
 	}
 
-	menu( missions, onPick ) {
+	menu( missions, onPick, notes = [] ) {
 
 		const best = bestStars();
 		const el = this.modal( `<div class="card">
 			<h1>Ljubljana <span>// Unrest</span></h1>
 			<div class="sub">Crowd strategy in the streets of Ljubljana. Pick a mission.</div>
+			${notes.map( ( n ) => `<p class="note">Plugin not loaded: ${esc( n )}</p>` ).join( '' )}
 			<div class="missions">${missions.map( ( M, k ) => `
 				<button class="mcard" data-k="${k}">
-					<div class="row"><span class="t">${esc( M.title )}</span><span class="side ${M.side}">${M.side}</span></div>
+					<div class="row"><span class="t">${esc( M.title )}</span>${M.tutorial
+		? `<span class="side tutorial">${best[ M.id ] ? 'tutorial' : 'start here'}</span>` : `<span class="side ${M.side}">${M.side}</span>`}</div>
 					<div class="s">${esc( M.subtitle )}</div>
 					<div class="stars">${starStr( best[ M.id ] ?? 0 )}</div>
 				</button>` ).join( '' )}
@@ -262,7 +301,7 @@ export class Hud {
 			<div class="row" style="display:flex;justify-content:space-between;align-items:center">
 				<h1>${esc( M.title )}</h1><span class="side ${M.side}">${M.side}</span></div>
 			<div class="sub">${esc( M.subtitle )}</div>
-			<p>${M.brief}</p>
+			<p>${richText( M.brief )}</p>
 			<div class="cols">
 				<div><h3>Objectives</h3><ul>${M.goals.map( ( g ) => `<li>${esc( g )}</li>` ).join( '' )}</ul></div>
 				<div><h3>Tips</h3><ul>${M.tips.map( ( g ) => `<li>${esc( g )}</li>` ).join( '' )}</ul></div>

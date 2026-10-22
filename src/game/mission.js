@@ -1,5 +1,5 @@
 // Mission base: timeline, objectives, public opinion, resources, events and the order set shared
-// by every mission on the same side. Concrete missions live in missions.js.
+// by every mission on the same side. Concrete missions live in missions/.
 import { FACTION, MODE, ROLE, STAT, ZONE } from '../sim/crowd.js';
 import { World, pick, rand, WATER_JET } from '../sim/world.js';
 import { CannonAI } from './cannon.js';
@@ -17,6 +17,9 @@ export class Mission {
 	static brief = '';
 	static goals = [];
 	static tips = [];
+	static city = null; // map folder under public/data/ (null: the default city)
+	static flashing = false; // uses strobe effects: the top bar shows their on / off button
+	static prepare( city ) {} // may patch the map data before the simulation is built; each mission is a fresh page load
 
 	constructor( game ) {
 
@@ -46,8 +49,11 @@ export class Mission {
 	get side() { return this.constructor.side; }
 
 	// ---------------------------------------------------------------- lifecycle (overridden)
+	// optional, read by the engine: start(), focus, zoom, wanderPlaces, onLeaderArrested( group ),
+	// onAction( { type: 'pan' | 'zoom' | 'select' | 'deselect' | 'move' | 'line' | 'drive' | 'order' | 'pause' | 'speed' | 'sound', … } )
 	async setup() {}
 	tick() {} // mission logic, called every frame with this.stats available
+	commands() { return this.side === 'police' ? this.policeCommands() : this.protestCommands(); } // the orders panel; add or wrap
 	objectives() { return []; }
 	phase() { return ''; }
 	score() { return { stars: 0, lines: [] }; }

@@ -7,7 +7,9 @@ import { PAL } from './palette.js';
 import { FlowFields } from './sim/flowfields.js';
 import { Crowd, FACTION } from './sim/crowd.js';
 import { World } from './sim/world.js';
-import { MISSIONS } from './game/missions.js';
+import { BUILTIN } from './game/missions/index.js';
+import { MISSIONS, registerMission, findMission } from './game/registry.js';
+import { loadPlugins } from './game/plugins.js';
 import { Patrols } from './game/patrols.js';
 import { Labels } from './labels.js';
 import { Hud } from './ui/hud.js';
@@ -15,6 +17,8 @@ import { Overlay } from './ui/overlay.js';
 import { Sound } from './audio/sound.js';
 
 if ( location.search.includes( 'debug' ) ) THREE.Node.captureStackTrace = true;
+
+BUILTIN.forEach( registerMission );
 
 const DT = 1 / 60;
 const SPEEDS = [ 1, 2, 3 ];
@@ -46,8 +50,10 @@ class Game {
 		if ( ! this.renderer.backend.isWebGPUBackend ) return fail( 'WebGPU adapter unavailable — the crowd simulation needs compute shaders.' );
 
 		// a mission may play on its own map (public/data/<city>/, see tools/build_city.py AREAS)
-		const id = new URLSearchParams( location.search ).get( 'm' );
-		const M = MISSIONS.find( ( q ) => q.id === id );
+		const params = new URLSearchParams( location.search ), id = params.get( 'm' );
+		// plugins from other sites run code in this page: only in dev, or in a build made with VITE_REMOTE_PLUGINS=1 (and the player confirms)
+		this.plugins = await loadPlugins( params.getAll( 'plugin' ), { allowRemote: import.meta.env.DEV || import.meta.env.VITE_REMOTE_PLUGINS === '1' } );
+		const M = findMission( id );
 		this.city = await loadCity( M?.city ? `./data/${M.city}/` : './data/' );
 		boot.textContent = 'building city…';
 		this.scene = new THREE.Scene();
@@ -64,6 +70,7 @@ class Game {
 		this.sound = new Sound( this );
 		this.hud = new Hud( this );
 		this.controls.onChange = () => { if ( this.crowd ) this.crowd.u.mpp.value = this.controls.mpp; this.labels.update(); };
+		this.controls.onGesture = ( kind ) => this.emit( kind );
 		this.controls.update();
 
 		this.pipeline = new THREE.RenderPipeline( this.renderer );
@@ -90,7 +97,7 @@ class Game {
 		this._input( canvas );
 
 		if ( M ) await this.load( M );
-		else this.hud.menu( MISSIONS, ( q ) => this.go( q.id ) );
+		else this.hud.menu( MISSIONS, ( q ) => this.go( q.id ), this.plugins.failed );
 
 		boot.classList.add( 'hide' );
 		this.renderer.setAnimationLoop( () => this.frame() );
@@ -98,10 +105,18 @@ class Game {
 
 	}
 
-	// a mission is a fresh page load: simplest way to get pristine GPU state
-	go( id ) { location.search = '?m=' + id; }
+	// a mission is a fresh page load: simplest way to get pristine GPU state (the plugins come along, they are loaded again)
+	go( id ) { location.search = this.query( { m: id } ); }
 
-	toMenu() { location.search = ''; }
+	toMenu() { location.search = this.query(); }
+
+	query( extra = {} ) {
+
+		const p = new URLSearchParams( extra );
+		for ( const u of new URLSearchParams( location.search ).getAll( 'plugin' ) ) p.append( 'plugin', u );
+		return p.toString();
+
+	}
 
 	async load( M ) {
 
@@ -171,11 +186,16 @@ class Game {
 
 	}
 
-	togglePause() { if ( this.mission && ! this.mission.result ) this.paused = ! this.paused; }
+	togglePause() { if ( this.mission && ! this.mission.result ) { this.paused = ! this.paused; this.emit( 'pause', { paused: this.paused } ); } }
 
-	toggleSound() { this.sound.setMuted( ! this.sound.muted ); this.hud.update( this.mission ); }
+	toggleSound() { this.sound.setMuted( ! this.sound.muted ); this.hud.update( this.mission ); this.emit( 'sound', { muted: this.sound.muted } ); }
 
-	cycleSpeed() { this.speed = SPEEDS[ ( SPEEDS.indexOf( this.speed ) + 1 ) % SPEEDS.length ]; }
+	cycleSpeed() { this.setSpeed( SPEEDS[ ( SPEEDS.indexOf( this.speed ) + 1 ) % SPEEDS.length ] ); }
+
+	setSpeed( s ) { this.speed = s; this.emit( 'speed', { speed: s } ); }
+
+	// what the player just did, for missions that react to input (the tutorial): Mission.onAction( { type, … } )
+	emit( type, data = {} ) { if ( this.mission && ! this.mission.result ) this.mission.onAction?.( { type, ...data } ); }
 
 	// ---------------------------------------------------------------- loop
 	frame() {
@@ -238,9 +258,11 @@ class Game {
 			const t = g.snatch;
 			if ( t.leaderState === 'active' ) {
 
-				if ( ! g.lastSnatch || Math.hypot( g.lastSnatch[ 0 ] - t.leaderPos[ 0 ], g.lastSnatch[ 1 ] - t.leaderPos[ 1 ] ) > 3 ) {
+				const moved = ! g.lastSnatch || Math.hypot( g.lastSnatch[ 0 ] - t.leaderPos[ 0 ], g.lastSnatch[ 1 ] - t.leaderPos[ 1 ] ) > 12;
+				if ( moved && m.t - ( g.lastSnatchAt ?? - Infinity ) >= 8 ) {
 
 					g.lastSnatch = t.leaderPos;
+					g.lastSnatchAt = m.t;
 					this.world.arrest( [ g ], ...t.leaderPos );
 
 				}
@@ -317,7 +339,7 @@ class Game {
 		if ( r && ( r.left <= 0 || r.ready > 0 ) ) { this.sound.refuse(); m.event( `${c.label} not available`, 'warn' ); return; }
 		if ( c.aim ) { this._aim( c ); return; }
 		// commands without a target run immediately; targeted ones arm and fire on the next map click
-		if ( c.run.length === 0 ) { c.run(); return; }
+		if ( c.run.length === 0 ) { c.run(); this.emit( 'order', { key } ); return; }
 		this.armed = this.armed === key ? null : key;
 		if ( ! this.armed ) this.overlay.preview = null;
 
@@ -364,6 +386,7 @@ class Game {
 		if ( ! c?.run ) return;
 		if ( this.mission.side === 'police' && c.needsSel && ! c.danger ) this.sound.order( c.key, [ x, y ] );
 		c.run( x, y );
+		this.emit( 'order', { key: c.key, at: [ x, y ] } );
 
 	}
 
@@ -416,7 +439,7 @@ class Game {
 			}
 
 			// a line (or a move) by the right button, or by the left one with Ctrl held (Mac: Ctrl-click) or after L
-			if ( e.button === 2 || ( e.button === 0 && ( e.ctrlKey || this.drawing ) ) ) { right = { a: [ w.x, w.y ], moved: false, left: e.button === 0 }; this.lineDrag = true; return; }
+			if ( e.button === 2 || ( e.button === 0 && ( e.ctrlKey || this.drawing ) ) ) { right = { a: [ w.x, w.y ], moved: false, left: e.button === 0, how: e.button === 2 ? 'right' : e.ctrlKey ? 'ctrl' : 'l' }; this.lineDrag = true; return; }
 			if ( e.button === 0 ) {
 
 				leftDown = { x: e.clientX, y: e.clientY };
@@ -439,6 +462,7 @@ class Game {
 				this.aiming = null;
 				leftDown = null;
 				A.c.run( w.x, w.y );
+				this.emit( 'order', { key: A.c.key, at: [ w.x, w.y ] } );
 				return;
 
 			}
@@ -450,7 +474,13 @@ class Game {
 				if ( right.left && this.drawing && ! right.moved ) { right = null; this.overlay.preview = null; m.event( 'Drag with the left button to draw the cordon line (Esc cancels)', 'info' ); return; }
 				if ( right.moved && this.squads.length ) this.drawing = false;
 				const sel = this.squads;
-				for ( const c of this.cars ) if ( ! this.world.patrols.driveTo( c, w.x, w.y ) ) m.event( `${c.label}: no road there`, 'warn' );
+				for ( const c of this.cars ) {
+
+					if ( this.world.patrols.driveTo( c, w.x, w.y ) ) this.emit( 'drive', { car: c, at: [ w.x, w.y ] } );
+					else m.event( `${c.label}: no road there`, 'warn' );
+
+				}
+
 				if ( this.cars.length && ! sel.length ) this.overlay.ping( w.x, w.y, 'info' );
 				if ( sel.length ) {
 
@@ -460,6 +490,7 @@ class Game {
 						else this.world.moveSquads( sel, w.x, w.y );
 						this.sound.order( right.moved ? 'line' : 'move', [ w.x, w.y ] );
 						for ( const g of sel ) g.snatch = null;
+						this.emit( right.moved ? 'line' : 'move', { a: right.a, at: [ w.x, w.y ], how: right.how, units: sel } );
 
 					} else { m.recall?.( sel ); this.world.march( sel, w.x, w.y, 15 ); }
 					this.overlay.ping( w.x, w.y, 'info' );
@@ -484,6 +515,7 @@ class Game {
 					const inBox = [ ...this.world.groups, ...cars ].filter( ( g ) => this.myFactions.includes( g.faction ) && g.center && ( g.alive ?? 0 ) > 0 && ( ( [ sx, sy ] ) => sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1 )( this.controls.worldToScreen( ...g.center ) ) );
 					this.selected = [ ...new Set( [ ...this.selected, ...inBox ] ) ];
 					this.onIntel();
+					this.emit( 'select', { how: 'box' } );
 					return;
 
 				}
@@ -498,6 +530,7 @@ class Game {
 			if ( e.shiftKey && g ) this.selected = this.selected.includes( g ) ? this.selected.filter( ( q ) => q !== g ) : [ ...this.selected, g ];
 			else this.selected = g ? [ g ] : [];
 			this.onIntel();
+			this.emit( 'select', { how: e.shiftKey ? 'add' : 'click' } );
 
 		} );
 
@@ -506,10 +539,10 @@ class Game {
 			if ( ! this.mission || e.target.tagName === 'INPUT' ) return;
 			const k = e.key.toLowerCase();
 			if ( k === ' ' ) { e.preventDefault(); this.togglePause(); return; }
-			if ( k === '+' || k === '=' ) { this.speed = Math.min( 3, this.speed + 1 ); return; }
-			if ( k === '-' ) { this.speed = Math.max( 1, this.speed - 1 ); return; }
+			if ( k === '+' || k === '=' ) { this.setSpeed( Math.min( 3, this.speed + 1 ) ); return; }
+			if ( k === '-' ) { this.setSpeed( Math.max( 1, this.speed - 1 ) ); return; }
 			if ( k === 'n' ) { this.toggleSound(); return; }
-			if ( k === 'escape' ) { if ( this.aiming ) { this.aiming = null; return; } if ( this.drawing ) { this.drawing = false; this.overlay.preview = null; return; } this.armed = null; this.overlay.preview = null; this.selected = []; this.onIntel(); return; }
+			if ( k === 'escape' ) { if ( this.aiming ) { this.aiming = null; return; } if ( this.drawing ) { this.drawing = false; this.overlay.preview = null; return; } this.armed = null; this.overlay.preview = null; this.selected = []; this.onIntel(); this.emit( 'deselect' ); return; }
 			if ( k === 'tab' ) {
 
 				e.preventDefault();
@@ -520,6 +553,7 @@ class Game {
 				this.controls.center.set( ...mine[ i ].center );
 				this.controls.update();
 				this.onIntel();
+				this.emit( 'select', { how: 'tab' } );
 				return;
 
 			}

@@ -14,6 +14,7 @@ export class PanZoom {
 		this.center = new Vector2( 0, 0 );
 		this.mpp = 1.2; // metres per CSS pixel
 		this.onChange = () => {};
+		this.onGesture = () => {}; // 'pan' | 'zoom', from the player only (not from code moving the camera)
 		this.shouldPan = () => true;
 		this.pointers = new Map();
 		this.dragMoved = 0;
@@ -52,6 +53,7 @@ export class PanZoom {
 		const after = this.screenToWorld( sx, sy );
 		this.center.add( before.sub( after ) );
 		this.update();
+		this.onGesture( 'zoom' );
 
 	}
 
@@ -85,6 +87,7 @@ export class PanZoom {
 		this.center.x -= dx * this.mpp;
 		this.center.y += dy * this.mpp;
 		this.update();
+		this.onGesture( 'pan' );
 
 	}
 

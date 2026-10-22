@@ -28,6 +28,8 @@ npm run dev      # development server
 npm run build    # static site in dist/ (relative URLs: works from any subdirectory)
 ```
 
+See the [mission plugin authoring guide](docs/PLUGIN_AUTHORING.md) to create and load custom missions.
+
 Set `SITE_URL=https://example.com/path/` when building to make the share-card tags absolute.
 
 The map data in `public/data/` is pre-built and included. `npm run build:city` regenerates it from a
