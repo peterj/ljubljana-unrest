@@ -90,6 +90,8 @@ export class TutorialMission extends Mission {
 				done: () => ! this.target || this.target.leaderState === 'arrested' || police().some( ( q ) => q.snatch === this.target ) },
 			{ ch: 5, unlock: [ 's' ], keys: [ 's' ], text: 'A cordon line can push. Form a line facing the crowd, select it and press <b>S</b>, then hold the left button ahead of the line and release: it advances shields up.',
 				done: () => police().some( ( q ) => q.cordon?.push ) },
+			{ ch: 5, keys: [ 's' ], text: 'A line can also push at an angle. Press <b>S</b> again and aim off to one side: the dashed line shows where it turns. Release, and it turns to face that way before it advances.',
+				done: () => police().some( ( q ) => q.cordon?.push?.turn ) },
 			// force
 			{ ch: 6, enter: () => this.ensureDemo(), unlock: [ 'k' ], keys: [ 'k' ], text: 'Force. With squads selected, press <b>K</b> over the crowd: they surround it and close in. Watch the escalation bar.', done: order( 'k' ) },
 			{ ch: 6, unlock: [ 'c' ], keys: [ 'c' ], spot: 'opinion', text: 'Press <b>C</b> to charge the crowd at the cursor. It works fast, but people get hurt, and every injury lowers public opinion.', done: order( 'c' ) },
