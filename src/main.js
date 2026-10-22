@@ -486,7 +486,7 @@ class Game {
 				for ( const c of this.cars ) {
 
 					const handled = m.onPlayerVehicleDrive?.( { vehicle: c, at: [ w.x, w.y ] } );
-					if ( handled === false && ! this.world.patrols.driveTo( c, w.x, w.y ) ) m.event( `${c.label}: no road there`, 'warn' );
+					if ( ! handled && ! this.world.patrols.driveTo( c, w.x, w.y ) ) m.event( `${c.label}: no road there`, 'warn' );
 					else this.emit( 'drive', { car: c, at: [ w.x, w.y ] } );
 
 				}
