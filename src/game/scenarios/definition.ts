@@ -195,9 +195,24 @@ function behaviorAttachment( value ) {
 
 }
 
+// per-person opinion change for each new injury/arrest counted in the stats; defaults match the base Mission
+export const OPINION_WEIGHTS = Object.freeze( { injuriesByPolice: - 0.5, officersInjured: 0.25, arrests: - 0.05, sitterArrests: - 0.15, otherInjuries: - 0.05 } );
+
+function opinionPolicy( value = {} ) {
+
+	fields( value, [ 'initial', 'gas', 'water', 'weights' ], 'scenario.opinion' );
+	const initial = value.initial ?? 60, gas = value.gas ?? - 2, water = value.water ?? - 2, weights = value.weights ?? {};
+	check( Number.isFinite( initial ) && initial >= 0 && initial <= 100, 'scenario.opinion.initial', 'must be from 0 to 100' );
+	for ( const [ key, cost ] of [ [ 'gas', gas ], [ 'water', water ] ] ) check( Number.isFinite( cost ) && cost >= - 100 && cost <= 0, `scenario.opinion.${key}`, 'must be a cost from -100 to 0' );
+	fields( weights, Object.keys( OPINION_WEIGHTS ), 'scenario.opinion.weights' );
+	for ( const [ key, weight ] of Object.entries( weights ) ) check( Number.isFinite( weight ) && Math.abs( weight ) <= 10, `scenario.opinion.weights.${key}`, 'must be finite and at most 10 in size' );
+	return Object.freeze( { initial, gas, water, weights: Object.freeze( { ...OPINION_WEIGHTS, ...weights } ) } );
+
+}
+
 export function defineScenario( options ) {
 
-	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase' ], 'scenario' );
+	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion' ], 'scenario' );
 	check( typeof options.id === 'string' && ID.test( options.id ), 'scenario.id', 'must be a lowercase slug' );
 	for ( const key of [ 'title', 'subtitle', 'brief' ] ) check( text( options[ key ] ), `scenario.${key}`, 'must be a non-empty string' );
 	check( options.side === undefined || options.side === 'police', 'scenario.side', 'this SDK preview supports police scenarios only' );
@@ -243,7 +258,7 @@ export function defineScenario( options ) {
 		subtitle: options.subtitle, brief: options.brief, side: 'police', city: options.city ?? null,
 		goals: Object.freeze( [ ...( options.goals ?? [] ) ] ), tips: Object.freeze( [ ...( options.tips ?? [] ) ] ), menu: options.menu ?? true,
 		locations: Object.freeze( locations ), setup: options.setup, score: options.score ?? null, seed: options.seed ?? null,
-		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null,
+		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null, opinion: opinionPolicy( options.opinion ),
 		initiallyLockedCommands: Object.freeze( [ ...initiallyLockedCommands ] ), resources, commands,
 		objectives: Object.freeze( [ kind === 'hold-building' ? holdBuilding( objective ) : kind === 'escort-convoy' ? escortConvoy( objective ) : kind === 'prevent-clash' ? preventClash( objective )
 			: kind === 'extract' ? extract( objective ) : kind === 'protect' ? protect( objective ) : survive( objective ) ] ) } );

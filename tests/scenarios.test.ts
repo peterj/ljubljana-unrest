@@ -1029,3 +1029,21 @@ test( 'Training final door test holds for 210 seconds and wins with three stars'
 	assert.equal( cards.at( - 1 ), null );
 
 } );
+test( 'scenario opinion policy defaults to the base mission model and maps overrides onto the host weights', async () => {
+
+	const { Mission } = await import( '../src/game/mission.ts' );
+	const { SitInMission } = await import( '../src/game/missions/sitin.ts' );
+	const { scenarioMission } = await import( '../src/game/scenarios/mission.ts' );
+	const base = scenario();
+	assert.deepEqual( { initial: base.opinion.initial, gas: base.opinion.gas, water: base.opinion.water }, { initial: 60, gas: - 2, water: - 2 } );
+	assert.deepEqual( scenarioMission( base ).prototype.opinionWeights(), Mission.prototype.opinionWeights() );
+	const sitin = scenario( { opinion: { initial: 55, gas: - 6, water: - 3.5,
+		weights: { injuriesByPolice: - 0.7, officersInjured: 0.2, arrests: - 0.03, sitterArrests: - 0.1, otherInjuries: - 0.05 } } } );
+	assert.deepEqual( scenarioMission( sitin ).prototype.opinionWeights(), SitInMission.prototype.opinionWeights() );
+	assert.equal( scenario( { opinion: { weights: { arrests: - 1 } } } ).opinion.weights.injuriesByPolice, - 0.5 );
+	assert.ok( Object.isFrozen( sitin.opinion ) && Object.isFrozen( sitin.opinion.weights ) );
+	assert.throws( () => scenario( { opinion: { initial: 101 } } ), /opinion\.initial/ );
+	assert.throws( () => scenario( { opinion: { gas: 1 } } ), /opinion\.gas/ );
+	assert.throws( () => scenario( { opinion: { weights: { tension: 1 } } } ), /unsupported field/ );
+
+} );

@@ -10,6 +10,7 @@ export class ScenarioEngine {
 	declare queue: Promise<void>;
 	declare nextReinforcement: number;
 	declare snatchTasks: Map<any, any>;
+	declare sitters: Set<number>;
 
 	constructor( mission ) {
 
@@ -17,12 +18,15 @@ export class ScenarioEngine {
 		this.queue = Promise.resolve();
 		this.nextReinforcement = 1;
 		this.snatchTasks = new Map<any, any>();
+		this.sitters = new Set();
 
 	}
 
 	place( name ) { return this.mission.world.places[ name ]; }
 	landmark( name ) { return this.mission.world.marks[ name ]; }
 	walkable( at, radius ) { return this.mission.world.roadSpot( ...at, radius ); }
+	clearance( at ) { return this.mission.world.sdf( ...at ); }
+	entries() { return ( this.mission.city.entries ?? [] ).map( ( entry ) => ( { name: entry.name, position: entry.pos } ) ); }
 	notice( text, kind, at ) { this.mission.event( text, kind, at ); }
 	coach( card ) { this.mission.game.hud.coach( card ); }
 
@@ -96,7 +100,7 @@ export class ScenarioEngine {
 	setCrowdMode( groups, mode ) {
 
 		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
-		this.mission.world.setMode( groups, { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT }[ mode ] );
+		this.mission.world.setMode( groups, { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT, sit: MODE.SIT }[ mode ] );
 		return { status: 'completed' };
 
 	}
@@ -133,10 +137,10 @@ export class ScenarioEngine {
 
 			const at = world.patrols.snap( ...options.at );
 			check( at !== null, 'spawn.vehicle.at', 'no drivable road near this position' );
-			const water = options.type === 'water-cannon';
+			const water = options.type === 'water-cannon', van = options.type === 'prisoner-van';
 			const patrol = options.type === 'police-patrol', crew = patrol ? options.crew : 0;
 			check( crowd.count + crew <= crowd.N && world.groups.length + Number( crew > 0 ) <= crowd.G, 'spawn.vehicle.crew', 'crew capacity exceeded' );
-			return world.patrols.add( { at, label: options.label ?? options.id, crew, selectable: water || patrol, civil: ! water && ! patrol, water, random } );
+			return world.patrols.add( { at, label: options.label ?? options.id, crew, selectable: water || patrol, civil: ! water && ! patrol && ! van, water, random } );
 
 		}
 		if ( kind === 'bystanders' ) return this.allocateBystanders( options, signal );
@@ -148,13 +152,20 @@ export class ScenarioEngine {
 
 			const layer = await world.fieldTo( ...( options.goal ?? options.at ), options.goal ? options.goalRadius : 30 );
 			signal.throwIfAborted();
+			const mode = { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT, sit: MODE.SIT }[ options.mode ];
+			const faction = { protester: FACTION.PROTESTER, bystander: FACTION.BYSTANDER, counter: FACTION.COUNTER }[ options.faction ];
 			const groups = kind === 'squad'
 				? [ await world.squad( { label: options.id, at: options.at, n: options.people, random } ) ]
-				: await world.bloc( { kind: 'crowd', label: options.label ?? options.id, at: options.at, n: options.people,
-					groupSize: options.groupSize, spread: options.spread, layer, goal: options.goal, goalR: options.goalRadius,
-					mode: { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT }[ options.mode ], agitation: options.agitation,
-					morale: options.morale, bikes: options.bikes, random, faction: { protester: FACTION.PROTESTER, bystander: FACTION.BYSTANDER, counter: FACTION.COUNTER }[ options.faction ] } );
+				: options.points
+					? await world.placeBloc( { kind: 'crowd', label: options.label ?? options.id, points: options.points.map( ( at ) => [ ...at ] ),
+						groupSize: options.groupSize, layer, mode, agitation: options.agitation, resolve: options.resolve, morale: options.morale,
+						sitters: options.mode === 'sit', faction } )
+					: await world.bloc( { kind: 'crowd', label: options.label ?? options.id, at: options.at, n: options.people,
+						groupSize: options.groupSize, spread: options.spread, layer, goal: options.goal, goalR: options.goalRadius,
+						mode, agitation: options.agitation, resolve: options.resolve,
+						morale: options.morale, bikes: options.bikes, random, faction } );
 			signal.throwIfAborted();
+			if ( options.mode === 'sit' ) for ( const group of groups ) for ( const member of group.members ) this.sitters.add( member );
 			return groups;
 
 		} catch ( error ) {
@@ -488,6 +499,27 @@ export class ScenarioEngine {
 
 	}
 
+	custodyEnvironment() {
+
+		const { world, crowd, runtime } = this.mission;
+		return {
+			time: () => runtime.time, intel: () => world.intel, count: () => crowd.count, capacity: () => crowd.N,
+			police: () => world.groupsOf( FACTION.POLICE ).filter( ( group ) => group.center && group.kind !== 'crew' ),
+			moveSquads: ( groups, x, y ) => world.moveSquads( groups, x, y ),
+			arrest: ( groups, x, y, radius ) => world.arrest( groups, x, y, radius ),
+			setGroup: ( id, patch ) => crowd.setGroup( id, patch ),
+			countNear: ( x, y, radius ) => world.countNear( x, y, radius, FACTION.PROTESTER ),
+			sitter: ( index ) => this.sitters.has( index ),
+			actorOf: ( index ) => {
+
+				const group = world.groups[ world.intel.group( index ) ];
+				return [ ...runtime.actors.values() ].find( ( record ) => Array.isArray( record.backend ) && record.backend.includes( group ) )?.handle.id ?? null;
+
+			},
+		};
+
+	}
+
 	async prepareCommand( request, selected, signal ) {
 
 		const { world, crowd, runtime } = this.mission;
@@ -495,6 +527,12 @@ export class ScenarioEngine {
 		if ( request.id === 'gas' || request.id === 'shield-push' ) return {};
 		let actor = null, groups = selected.flat();
 		if ( request.id === 'firearms' ) return { groups, applied: false };
+		if ( request.id === 'arrest' && runtime.custody.options ) {
+
+			if ( ! runtime.custody.dropoffs.size ) return { status: 'rejected', code: 'NO_DROPOFF' };
+			return { groups, custody: true, applied: false };
+
+		}
 		if ( request.id === 'water' ) {
 
 			const truck = groups[ 0 ];
@@ -611,6 +649,7 @@ export class ScenarioEngine {
 			affected = line.squads;
 
 		} else if ( request.id === 'charge' ) work = world.charge( groups, ...request.at, { layer: prepared.layer, valid: current } );
+		else if ( request.id === 'arrest' && prepared.custody ) runtime.custody.start( groups, request.at );
 		else if ( request.id === 'arrest' ) work = world.arrest( groups, ...request.at, 5, null, { layer: prepared.layer, valid: current } );
 		else if ( request.id === 'kettle' ) work = world.kettle( groups, ...request.at, prepared.radius, world.intel.pos, { layer: prepared.layer, valid: current } );
 		else if ( request.id === 'reinforce' ) work = world.moveSquads( groups, ...request.at, { layer: prepared.layer, valid: current } );

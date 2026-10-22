@@ -26,6 +26,9 @@ export function scenarioMission( value ) {
 		constructor( game ) {
 
 			super( game );
+			this.opinion = definition.opinion.initial;
+			this.gasOpinion = definition.opinion.gas;
+			this.waterOpinion = definition.opinion.water;
 			this.runtime = new ScenarioRuntime( definition, new ScenarioEngine( this ), {
 				onFinish: ( result ) => { this.result = result; game.finish( result ); },
 				onFailure: ( error ) => {
@@ -130,8 +133,8 @@ export function scenarioMission( value ) {
 			operation.settled.then( ( outcome: any ) => {
 
 				this.escalation = this.runtime.commands.escalation;
-				if ( outcome.status === 'completed' && id === 'gas' ) { this.counters.gas ++; this.nudgeOpinion( this.gasOpinion ?? - 2, 'tear gas' ); }
-				if ( outcome.status === 'completed' && id === 'water' ) this.nudgeOpinion( this.waterOpinion ?? - 2, 'water cannon' );
+				if ( outcome.status === 'completed' && id === 'gas' ) { this.counters.gas ++; this.nudgeOpinion( this.gasOpinion, 'tear gas' ); }
+				if ( outcome.status === 'completed' && id === 'water' ) this.nudgeOpinion( this.waterOpinion, 'water cannon' );
 				if ( outcome.status === 'rejected' ) this.event( `${command.label}: ${outcome.code.toLowerCase().replaceAll( '_', ' ' )}`, 'warn', [ x, y ] );
 
 			} );
@@ -211,6 +214,13 @@ export function scenarioMission( value ) {
 
 		phase() { return this.runtime.phase(); }
 		objectives() { return this.runtime.objectives(); }
+
+		opinionWeights() {
+
+			const w = definition.opinion.weights;
+			return { injByPolice: w.injuriesByPolice, injPolice: w.officersInjured, arrested: w.arrests, arrestedSitters: w.sitterArrests, injOther: w.otherInjuries };
+
+		}
 
 		draw( overlay ) {
 

@@ -9,6 +9,7 @@ import { ResourceHost } from './resources.ts';
 import { CommandHost } from './commands.ts';
 import { advanceClash } from './clash.ts';
 import { ConvoyHost } from './convoys.ts';
+import { CustodyHost } from './custody.ts';
 
 let nextRun = 1;
 const terminal = new Set( [ 'finished', 'failed', 'disposed' ] );
@@ -60,6 +61,7 @@ export class ScenarioRuntime {
 	declare resources: ResourceHost;
 	declare commands: CommandHost;
 	declare convoys: ConvoyHost;
+	declare custody: CustodyHost;
 	declare events: any[];
 	declare dispatching: boolean;
 	declare nextEvent: number;
@@ -100,6 +102,7 @@ export class ScenarioRuntime {
 		this.resources = new ResourceHost( this, this.definition.resources );
 		this.commands = new CommandHost( this );
 		this.convoys = new ConvoyHost( this );
+		this.custody = new CustodyHost( this );
 		this.events = [];
 		this.dispatching = false;
 		this.nextEvent = 1;
@@ -113,6 +116,7 @@ export class ScenarioRuntime {
 			} ),
 			commands: this.commands.context(),
 			convoys: this.convoys.context(),
+			custody: this.custody.context(),
 			people: this.identity.peopleContext(),
 			protected: this.identity.context(),
 			vehicles: this.transport.context(),
@@ -128,6 +132,14 @@ export class ScenarioRuntime {
 					return value ? point( value, 'spatial.walkable' ) : null;
 
 				},
+				clearance: ( at ) => {
+
+					const value = this.adapter.clearance( this.location( at ) );
+					return Number.isFinite( value ) ? value : null;
+
+				},
+				entries: () => Object.freeze( this.adapter.entries().map( ( entry, index ) => Object.freeze( {
+					name: typeof entry.name === 'string' ? entry.name : null, position: point( entry.position, `spatial.entries.${index}` ) } ) ) ),
 			} ),
 			spawn: Object.freeze( {
 				crowd: ( options ) => this.spawn( 'crowd', options ),
@@ -202,7 +214,7 @@ export class ScenarioRuntime {
 	setCrowdMode( value, mode ) {
 
 		this.writable();
-		check( [ 'hold', 'march', 'riot' ].includes( mode ), 'crowd.mode', 'must be hold, march or riot' );
+		check( [ 'hold', 'march', 'riot', 'sit' ].includes( mode ), 'crowd.mode', 'must be hold, march, riot or sit' );
 		const actor = this.crowdRecord( value ), result = this.adapter.setCrowdMode( actor.backend, mode );
 		if ( result.status === 'rejected' ) return Object.freeze( result );
 		this.event( 'crowd.mode-changed', { actor: actor.handle, mode } );
@@ -288,7 +300,7 @@ export class ScenarioRuntime {
 
 		this.writable();
 		fields( options, kind === 'vehicle' ? [ 'id', 'at', 'capacity', 'label', 'type', 'crew' ] : kind === 'crowd'
-			? [ 'id', 'at', 'people', 'spread', 'label', 'groupSize', 'agitation', 'morale', 'bikes', 'goal', 'goalRadius', 'mode', 'faction' ]
+			? [ 'id', 'at', 'people', 'spread', 'label', 'groupSize', 'agitation', 'resolve', 'morale', 'bikes', 'goal', 'goalRadius', 'mode', 'faction', 'points' ]
 			: kind === 'bystanders' ? [ 'id', 'people', 'destinations', 'groupSize', 'spread' ] : [ 'id', 'at', 'people', 'spread' ], `spawn.${kind}` );
 		check( typeof options.id === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test( options.id ), 'spawn.id', 'must be a lowercase slug' );
 		check( ! this.actors.has( options.id ), 'spawn.id', `'${options.id}' is already allocated` );
@@ -303,7 +315,7 @@ export class ScenarioRuntime {
 
 			check( Number.isInteger( capacity ) && capacity > 0 && capacity <= 8, 'spawn.capacity', 'must be an integer from 1 to 8' );
 			check( options.label === undefined || ( typeof options.label === 'string' && options.label.trim() !== '' ), 'spawn.label', 'must be non-empty text' );
-			check( [ 'transport', 'water-cannon', 'police-patrol' ].includes( vehicleType ), 'spawn.type', 'must be transport, water-cannon or police-patrol' );
+			check( [ 'transport', 'water-cannon', 'police-patrol', 'prisoner-van' ].includes( vehicleType ), 'spawn.type', 'must be transport, water-cannon, police-patrol or prisoner-van' );
 			check( vehicleType === 'police-patrol' ? Number.isInteger( vehicleCrew ) && vehicleCrew > 0 && vehicleCrew <= 16 : options.crew === undefined,
 				'spawn.crew', 'is available only for police-patrol vehicles and must be from 1 to 16' );
 
@@ -312,19 +324,25 @@ export class ScenarioRuntime {
 		let crowdOptions: Record<string, any> = {};
 		if ( kind === 'crowd' ) {
 
-			const groupSize = options.groupSize ?? 60, agitation = options.agitation ?? [ 0.05, 0.25 ], morale = options.morale ?? 0.5;
+			const groupSize = options.groupSize ?? 60, agitation = options.agitation ?? [ 0.05, 0.25 ], resolve = options.resolve ?? [ 0.6, 1.0 ], morale = options.morale ?? 0.5;
 			const bikes = options.bikes ?? 0, goalRadius = options.goalRadius ?? 25, faction = options.faction ?? 'protester';
 			const goal = options.goal === undefined ? null : this.location( options.goal );
 			const mode = options.mode ?? ( goal ? 'march' : 'hold' );
 			check( Number.isInteger( groupSize ) && groupSize > 0 && groupSize <= 500, 'spawn.groupSize', 'must be an integer from 1 to 500' );
 			check( Array.isArray( agitation ) && agitation.length === 2 && Array.from( agitation ).every( ( value ) => Number.isFinite( value ) && value >= 0 && value <= 1 ) && agitation[ 0 ] <= agitation[ 1 ], 'spawn.agitation', 'must be an ordered finite range from 0 to 1' );
+			check( Array.isArray( resolve ) && resolve.length === 2 && Array.from( resolve ).every( ( value ) => Number.isFinite( value ) && value >= 0 && value <= 2 ) && resolve[ 0 ] <= resolve[ 1 ], 'spawn.resolve', 'must be an ordered finite range from 0 to 2' );
+			check( options.points === undefined || ( Array.isArray( options.points ) && options.points.length === people && Array.from( options.points ).every( Array.isArray ) ),
+				'spawn.points', 'must list exactly one coordinate pair per person' );
+			const points = options.points === undefined ? null : Object.freeze( options.points.map( ( value, index ) => point( value, `spawn.points.${index}` ) ) );
 			for ( const [ key, value ] of [ [ 'morale', morale ], [ 'bikes', bikes ] ] ) check( Number.isFinite( value ) && value >= 0 && value <= 1, `spawn.${key}`, 'must be between 0 and 1' );
 			check( Number.isFinite( goalRadius ) && goalRadius > 0 && goalRadius <= 1000, 'spawn.goalRadius', 'must be positive and at most 1000 meters' );
-			check( [ 'hold', 'march', 'riot' ].includes( mode ), 'spawn.mode', 'must be hold, march or riot' );
+			check( [ 'hold', 'march', 'riot', 'sit' ].includes( mode ), 'spawn.mode', 'must be hold, march, riot or sit' );
+			check( mode !== 'sit' || points !== null, 'spawn.mode', 'sit mode requires points' );
+			check( points === null || bikes === 0, 'spawn.bikes', 'placed crowds walk' );
 			check( mode !== 'march' || goal !== null, 'spawn.goal', 'march mode requires a destination' );
 			check( [ 'protester', 'bystander', 'counter' ].includes( faction ), 'spawn.faction', 'must be a civilian faction' );
 			check( options.label === undefined || ( typeof options.label === 'string' && options.label.trim() !== '' ), 'spawn.label', 'must be non-empty text' );
-			crowdOptions = { groupSize, agitation: Object.freeze( [ ...agitation ] ), morale, bikes, goal, goalRadius, mode, faction };
+			crowdOptions = { groupSize, agitation: Object.freeze( [ ...agitation ] ), resolve: Object.freeze( [ ...resolve ] ), morale, bikes, goal, goalRadius, mode, faction, points };
 
 		} else if ( kind === 'bystanders' ) {
 
@@ -660,7 +678,7 @@ export class ScenarioRuntime {
 		if ( this.state !== 'running' ) return;
 		this.time += dt;
 		this.step ++;
-		try { this.convoys.update( dt ); } catch ( error ) { this.fail( error ); return; }
+		try { this.convoys.update( dt ); this.custody.update(); } catch ( error ) { this.fail( error ); return; }
 		const objective = this.definition.objectives[ 0 ];
 		if ( objective.kind === 'prevent-clash' ) this.clashPressure = advanceClash( this.clashPressure, this.metrics().clashContacts, dt );
 		try { this.behaviors.update( dt ); } catch ( error ) { this.fail( error ); return; }

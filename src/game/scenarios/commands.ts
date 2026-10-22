@@ -1,4 +1,5 @@
 import { check, fields } from './definition.ts';
+import { custodyOptions } from './custody.ts';
 
 const catalog = Object.freeze( {
 	charge: Object.freeze( { key: 'c', label: 'Charge', needsSelection: true, escalation: 1 } ),
@@ -15,10 +16,12 @@ const catalog = Object.freeze( {
 
 export function policeCommands( options = {} ) {
 
-	fields( options, [ 'gas', 'reinforce', 'water', 'crew', 'firearms' ], 'policeCommands' );
+	fields( options, [ 'gas', 'reinforce', 'water', 'crew', 'firearms', 'custody' ], 'policeCommands' );
 	check( options.crew === undefined || typeof options.crew === 'boolean', 'policeCommands.crew', 'must be a boolean' );
 	check( options.firearms === undefined || typeof options.firearms === 'boolean', 'policeCommands.firearms', 'must be a boolean' );
-	const values = [ 'charge', 'arrest', 'snatch', 'kettle', 'shield-push' ].map( ( id ) => Object.freeze( { kind: 'police-command', id, resource: null } ) );
+	const custody = options.custody === undefined || options.custody === false ? null : custodyOptions( options.custody );
+	const values = [ 'charge', 'arrest', 'snatch', 'kettle', 'shield-push' ].map( ( id ) => Object.freeze( { kind: 'police-command', id, resource: null,
+		...( id === 'arrest' && custody ? { custody } : {} ) } ) );
 	if ( options.crew ) values.push( Object.freeze( { kind: 'police-command', id: 'crew', resource: null } ) );
 	if ( options.firearms ) values.push( Object.freeze( { kind: 'police-command', id: 'firearms', resource: null } ) );
 	for ( const id of [ 'gas', 'reinforce', 'water' ] ) if ( options[ id ] !== undefined ) {
@@ -36,11 +39,13 @@ export function commandDefinitions( values: readonly any[] = [], resources ) {
 	check( Array.isArray( values ) && Array.from( values ).every( ( value ) => value?.kind === 'police-command' ), 'commands', 'must be a dense array of supported command definitions' );
 	const commands = values.map( ( value ) => {
 
-		fields( value, [ 'kind', 'id', 'resource' ], 'command' );
+		fields( value, [ 'kind', 'id', 'resource', 'custody' ], 'command' );
 		check( Object.hasOwn( catalog, value.id ), 'command.id', 'unknown police command' );
+		check( value.custody === undefined || value.id === 'arrest', `command.${value.id}.custody`, 'only the arrest command takes custody options' );
 		if ( [ 'gas', 'reinforce', 'water' ].includes( value.id ) ) check( typeof value.resource === 'string' && Object.hasOwn( resources, value.resource ), `command.${value.id}.resource`, 'must refer to a declared resource' );
 		else check( value.resource === null, `command.${value.id}.resource`, 'this standard command has no resource cost' );
-		return Object.freeze( { kind: 'police-command', id: value.id, resource: value.resource } );
+		return Object.freeze( { kind: 'police-command', id: value.id, resource: value.resource,
+			...( value.custody === undefined ? {} : { custody: custodyOptions( value.custody ) } ) } );
 
 	} );
 	check( new Set( commands.map( ( value ) => value.id ) ).size === commands.length, 'commands', 'command IDs must be unique' );
@@ -74,7 +79,7 @@ export class CommandHost {
 	list() {
 
 		return Object.freeze( [ ...this.definitions.values() ].filter( ( definition ) => ! this.locks.get( definition.id )?.size )
-			.map( ( definition ) => Object.freeze( { ...definition, ...catalog[ definition.id ] } ) ) );
+			.map( ( definition ) => Object.freeze( { ...definition, ...catalog[ definition.id ], ...( definition.custody ? { label: 'Arrest & cart off' } : {} ) } ) ) );
 
 	}
 

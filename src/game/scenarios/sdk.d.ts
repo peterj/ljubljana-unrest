@@ -81,11 +81,15 @@ export interface SpatialContext {
     building(targetAlias: string, exitAt?: Readonly<Record<number, Point>>): BuildingMeasurement | null;
     /** Nearest connected street point with host clearance; default search 60 meters, maximum 1000. */
     walkable(at: string | Point, radius?: number): Point | null;
+    /** Meters from the point to the nearest building or obstacle; null when the map cannot say. */
+    clearance(at: string | Point): number | null;
+    /** Map-edge street entries where arriving crowds come from, with their street names when known. */
+    entries(): readonly { readonly name: string | null; readonly position: Point }[];
 }
 
 /** Synchronous civilian crowd mutation; implementation details remain inside the host adapter. */
 export type CrowdMutationResult =
-    | { readonly status: 'completed'; readonly value: { readonly actor: ActorHandle; readonly mode?: 'hold' | 'march' | 'riot'; readonly people?: number } }
+    | { readonly status: 'completed'; readonly value: { readonly actor: ActorHandle; readonly mode?: 'hold' | 'march' | 'riot' | 'sit'; readonly people?: number } }
     | { readonly status: 'rejected'; readonly code: 'FACTION' | 'OBSERVATION_UNAVAILABLE' };
 
 /** Finite inventory with game-time cooldown; standard commands currently cost one unit. */
@@ -216,6 +220,8 @@ export interface PoliceCommandDefinition {
     readonly id: PoliceCommandId;
     /** Water/gas/reinforce cost source; null for the other standard orders. */
     readonly resource: string | null;
+    /** Arrest only: squads carry detainees to registered drop-offs instead of arresting in place. */
+    readonly custody?: Readonly<Required<CustodyOptions>>;
 }
 
 /** Read-only UI metadata; execution still validates all preconditions. */
@@ -250,6 +256,65 @@ export interface PoliceCommandOptions {
     crew?: boolean;
     /** Enable the `o` order; the host requires explicit player confirmation before applying it. */
     firearms?: boolean;
+    /** Turn `a` into an arrest-and-transport job (label "Arrest & cart off"); `true` uses the defaults. */
+    custody?: true | CustodyOptions;
+}
+
+/** Arrest-and-transport tuning; defaults match the built-in Sit-in. */
+export interface CustodyOptions {
+    /** Detainees a squad carries before it walks to the nearest drop-off; integer 1..50, default 8. */
+    capacity?: number;
+    /** Seconds a squad holds formation to restrain each person; default 3.5. */
+    processSeconds?: number;
+    /** Seconds at an unblocked drop-off to hand detainees over; default 5. */
+    unloadSeconds?: number;
+    /** Protesters within this radius (meters) can blockade a drop-off; default 10. */
+    blockadeRadius?: number;
+    /** Protesters needed inside the radius to blockade it; default 15. */
+    blockadePeople?: number;
+}
+
+/** Registered hand-over point, for example beside a prisoner van. */
+export interface DropoffHandle {
+    readonly id: string;
+}
+
+/** Immutable custody snapshot; counts are keyed by the source crowd actor ID. */
+export interface CustodyObservation {
+    /** People restrained but not yet handed over. */
+    readonly carried: number;
+    /** People handed over at a drop-off, by the crowd actor they were arrested from. */
+    readonly handedOver: Readonly<Record<string, number>>;
+    /** Arrests with no police squad within 12 m (snatch, crowd crush), counted as processed directly. */
+    readonly unescorted: Readonly<Record<string, number>>;
+    readonly dropoffs: readonly { readonly id: string; readonly position: Point; readonly blocked: boolean }[];
+    readonly squads: readonly { readonly squad: ActorHandle; readonly state: 'approach' | 'arrest' | 'process' | 'cart' | 'unload' | 'idle'; readonly held: number }[];
+}
+
+/** Available when the scenario enables `policeCommands({ custody })`. */
+export interface CustodyContext {
+    /** Register a drop-off; arrests are rejected with NO_DROPOFF until at least one exists. */
+    addDropoff(options: { id: string; at: string | Point }): DropoffHandle;
+    state(): CustodyObservation;
+}
+
+/** Custody facts discovered from sampled observations. */
+export interface CustodyEvent {
+    readonly type: 'custody.detained' | 'custody.handed-over' | 'custody.idle' | 'custody.blockaded' | 'custody.cleared';
+    readonly sequence: number;
+    readonly time: number;
+    /** Escorting squad; null for an unescorted detention. */
+    readonly squad?: ActorHandle | null;
+    /** Crowd actor the detained person belonged to, when known. */
+    readonly actor?: ActorHandle | null;
+    readonly position?: Point;
+    readonly dropoff?: string;
+    /** Handed-over count and its split by source crowd actor ID. */
+    readonly people?: number;
+    readonly byActor?: Readonly<Record<string, number>>;
+    /** `nobody-left` when an arrest spot has no one left to take. */
+    readonly reason?: 'nobody-left';
+    readonly at?: Point;
 }
 
 /** A command captures these handles and destination before asynchronous preparation. */
@@ -283,7 +348,7 @@ export interface CommandReceipt {
 /** Expected command rejection does not fail the scenario or spend a reserved resource. */
 export type CommandRejection = 'SELECTION_REQUIRED' | 'INVALID_SELECTION' | 'CONFIRMATION_REQUIRED' | 'TARGET_NOT_FOUND' | 'TARGET_UNAVAILABLE' | 'WATER_BUSY' | 'NO_CREW' | 'VEHICLE_MOVING' | 'VEHICLE_TYPE' | 'BOARDING_PENDING'
     | 'CONTROL_BUSY' | 'PLAYER_CONTROL' | 'CORDON_REQUIRED' | 'SELECT_ENTIRE_CORDON' | 'INVALID_PUSH'
-    | 'COOLDOWN' | 'RESOURCE_EMPTY' | 'RESOURCE_BUSY' | 'CAPACITY' | 'NO_STATION' | 'SUPERSEDED'
+    | 'COOLDOWN' | 'RESOURCE_EMPTY' | 'RESOURCE_BUSY' | 'CAPACITY' | 'NO_STATION' | 'SUPERSEDED' | 'NO_DROPOFF'
     | 'COMMAND_LOCKED' | 'OWNER_STOPPED' | 'SCENARIO_STOPPED';
 
 /** Resolution of standard command work; completion means application, not completion of the physical task. */
@@ -488,6 +553,8 @@ export interface CrowdSpawnOptions extends SpawnOptions {
     groupSize?: number;
     /** Initial ordered agitation range in [0,1]; default [0.05,0.25]. */
     agitation?: readonly [number, number];
+    /** Initial ordered resolve range in [0,2]; default [0.6,1]. */
+    resolve?: readonly [number, number];
     /** Initial group morale in [0,1]; default 0.5. */
     morale?: number;
     /** Share initially riding bicycles in [0,1]; default zero. */
@@ -497,9 +564,11 @@ export interface CrowdSpawnOptions extends SpawnOptions {
     /** Navigation goal radius in meters; default 25, maximum 1000. */
     goalRadius?: number;
     /** Initial semantic mode; march requires a goal. No raw simulation enums are exported. */
-    mode?: 'hold' | 'march' | 'riot';
+    mode?: 'hold' | 'march' | 'riot' | 'sit';
     /** Civilian faction; defaults to protester. */
     faction?: 'protester' | 'bystander' | 'counter';
+    /** Exact placement, one point per person in group order; required for `sit`, ignores spread and bikes. */
+    points?: readonly Point[];
 }
 
 /** Scattered passive onlookers that migrate among declared destinations. */
@@ -525,7 +594,7 @@ export interface VehicleSpawnOptions {
     /** Seats, including any accompanying bearer; default 1, maximum 8. */
     capacity?: number;
     /** Vehicle capability; transport is default, police-patrol creates a selectable car with crew. */
-    type?: 'transport' | 'water-cannon' | 'police-patrol';
+    type?: 'transport' | 'water-cannon' | 'police-patrol' | 'prisoner-van';
     /** Crew size for police-patrol only; defaults to eight, maximum sixteen. */
     crew?: number;
     /** Display label; defaults to ID. */
@@ -954,7 +1023,7 @@ export interface ScenarioContext {
     /** Opaque actor-level crowd modes and bounded agitation/resolve effects; no raw member indices. */
     readonly crowd: {
         /** Change a civilian crowd actor's semantic mode. */
-        setMode(actor: ActorHandle | string, mode: 'hold' | 'march' | 'riot'): CrowdMutationResult;
+        setMode(actor: ActorHandle | string, mode: 'hold' | 'march' | 'riot' | 'sit'): CrowdMutationResult;
         /** Add bounded agitation/resolve deltas to active observed civilians in the actor. */
         nudge(actor: ActorHandle | string, options: { agitation?: number; resolve?: number }): CrowdMutationResult;
     };
@@ -962,6 +1031,8 @@ export interface ScenarioContext {
     readonly commands: CommandContext;
     /** Host-managed kinematic convoy; create during setup, then inspect and depart through its handle. */
     readonly convoys: ConvoyContext;
+    /** Drop-offs and custody counts for `policeCommands({ custody })`. */
+    readonly custody: CustodyContext;
     /** Target aliases expose immutable footprint/exit geometry without raw map buffers. */
     readonly targets: { get(alias: string): TargetInfo };
     /** Sampled spatial measurements and connected-road placement. */
@@ -1124,7 +1195,7 @@ export type ProtectedEvent =
     });
 
 /** Built-in event vocabulary for this preview; arbitrary custom event registration is not exposed. */
-export type ScenarioEvent = MovementEvent | ProtectedEvent | PersonEvent | VehicleEvent | TransportEvent | CommandEvent | SnatchTaskEvent | CrowdEvent;
+export type ScenarioEvent = MovementEvent | ProtectedEvent | PersonEvent | VehicleEvent | TransportEvent | CommandEvent | SnatchTaskEvent | CrowdEvent | CustodyEvent;
 
 /** Actor-level crowd mode or bounded agitation/resolve effect. */
 export interface CrowdEvent {
@@ -1137,7 +1208,7 @@ export interface CrowdEvent {
     /** Affected crowd actor. */
     readonly actor: ActorHandle;
     /** Present for mode changes. */
-    readonly mode?: 'hold' | 'march' | 'riot';
+    readonly mode?: 'hold' | 'march' | 'riot' | 'sit';
     /** Number of active observed people affected by a nudge. */
     readonly people?: number;
     /** Applied agitation/resolve deltas for nudge events. */
@@ -1418,6 +1489,32 @@ export type RouteOptions = {
     });
 
 /** Author input for the implemented preview; unsupported fields fail validation. */
+/** Opinion change per newly counted person; positive raises public opinion. */
+export interface OpinionWeights {
+    /** Default -0.5. */
+    injuriesByPolice?: number;
+    /** Default 0.25. */
+    officersInjured?: number;
+    /** Default -0.05. */
+    arrests?: number;
+    /** Default -0.15. */
+    sitterArrests?: number;
+    /** Default -0.05. */
+    otherInjuries?: number;
+}
+
+/** Scenario-wide public opinion model; costs are applied when the player's gas/water order is applied. */
+export interface OpinionPolicy {
+    /** Starting opinion from 0 to 100; default 60. */
+    initial?: number;
+    /** Cost of one tear gas order, -100..0; default -2. */
+    gas?: number;
+    /** Cost of one water cannon order, -100..0; default -2. */
+    water?: number;
+    /** Each weight's magnitude is at most 10. */
+    weights?: OpinionWeights;
+}
+
 export interface ScenarioOptions {
     /** Finite named resources; default empty. */
     resources?: Record<string, ResourceOptions>;
@@ -1437,6 +1534,8 @@ export interface ScenarioOptions {
     menu?: boolean;
     /** Optional owned gameplay random seed from zero through 2^32-1. */
     seed?: number;
+    /** Public opinion start, force costs and per-person stat weights; defaults match the built-in police missions. */
+    opinion?: OpinionPolicy;
     /** Globally unique lowercase slug used by the m query parameter and saved results. */
     id: string;
     /** Scenario name shown in the menu, briefing and HUD. */
@@ -1483,6 +1582,8 @@ export interface ScenarioDefinition {
     readonly menu: boolean;
     /** Explicit 32-bit random seed, or null when the runtime creates one. */
     readonly seed: number | null;
+    /** Normalized opinion policy with every default filled in. */
+    readonly opinion: Readonly<Required<Omit<OpinionPolicy, 'weights'>>> & { readonly weights: Readonly<Required<OpinionWeights>> };
     /** Distinguishes a scenario definition from a mission class or behavior attachment. */
     readonly kind: 'scenario';
     /** Protocol version validated by the host. */
