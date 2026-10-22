@@ -7,7 +7,7 @@ import { ScenarioEngine } from '../src/game/scenarios/engine.js';
 function worldFixture() {
 
 	const writes = [], offsets = [], layers = [];
-	const world = { uncordon() {}, fieldTo: async () => 7,
+	const world = { uncordon() {}, endSnatch() {}, fieldTo: async () => 7,
 		crowd: { setGroup: ( id, value ) => writes.push( { id, ...value } ), setOffsets: ( ...args ) => offsets.push( args ) },
 		setLayer: ( group, layer ) => layers.push( layer ), intel: null };
 	const group = { id: 0, members: [ 0, 1 ], mode: MODE.HOLD };

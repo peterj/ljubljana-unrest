@@ -47,6 +47,15 @@ class Game {
 		this.renderer.setPixelRatio( Math.min( 2, window.devicePixelRatio ) );
 		this.renderer.setSize( window.innerWidth, window.innerHeight );
 		await this.renderer.init();
+		// the GPU gave up (a driver reset, or the browser killed a frame that took too long): say so instead of a frozen map
+		const lost = this.renderer.onDeviceLost;
+		this.renderer.onDeviceLost = ( info ) => {
+
+			lost.call( this.renderer, info );
+			this.paused = true;
+			fail( `The graphics device was lost${info.message ? ` (${info.message})` : ''}. Reload the page to continue.` );
+
+		};
 		if ( ! this.renderer.backend.isWebGPUBackend ) return fail( 'WebGPU adapter unavailable — the crowd simulation needs compute shaders.' );
 
 		// a mission may play on its own map (public/data/<city>/, see tools/build_city.py AREAS)
@@ -198,7 +207,21 @@ class Game {
 	emit( type, data = {} ) { if ( this.mission && ! this.mission.result ) this.mission.onAction?.( { type, ...data } ); }
 
 	// ---------------------------------------------------------------- loop
+	// one failing frame would otherwise fail silently every frame after it, with the map frozen: report the first
 	frame() {
+
+		try { this._frame(); } catch ( e ) {
+
+			if ( this.frameError ) return;
+			this.frameError = e;
+			console.error( 'Frame failed; the simulation and the map have stopped updating.', e );
+			this.mission?.event( 'Internal error: the map has stopped updating (details in the browser console)', 'bad' );
+
+		}
+
+	}
+
+	_frame() {
 
 		const m = this.mission;
 		const now = performance.now();
@@ -265,6 +288,22 @@ class Game {
 			if ( g.justIdentified && m.side === 'police' && g.alive > 20 ) ( this.newlyIdentified ??= [] ).push( g );
 			if ( ! g.snatch ) continue;
 			const t = g.snatch;
+			// the player's snatch squads (World.snatch): one message per leader, however many squads went for them
+			if ( g.snatchPlan ) {
+
+				const end = this.world.snatchStep( g, m.t );
+				if ( end === 'abandoned' ) m.event( `${g.label}: lost the leader of ${t.label}, back to post`, 'warn', g.center );
+				else if ( end && ! t.snatchReported ) {
+
+					t.snatchReported = true;
+					m.event( `${end === 'detained' ? 'Injured leader' : 'Leader'} of ${t.label} ${end} — the group is losing heart`, 'good', t.leaderPos );
+
+				}
+
+				continue;
+
+			}
+
 			if ( t.leaderState === 'active' ) {
 
 				const moved = ! g.lastSnatch || Math.hypot( g.lastSnatch[ 0 ] - t.leaderPos[ 0 ], g.lastSnatch[ 1 ] - t.leaderPos[ 1 ] ) > 12;
@@ -298,10 +337,11 @@ class Game {
 		}
 
 		// cordon lines that are losing officers close ranks, then fall back (both sides see it)
-		for ( const e of this.world.cordonCheck( m.t ) ) {
+		for ( const e of this.world.cordonCheck( m.t, { brace: m.side === 'police' } ) ) {
 
 			const ours = m.side === 'police';
 			m.onCordon( e );
+			if ( e.type === 'brace' ) { m.event( `${e.label}: in line, shields up`, 'info', e.at ); continue; }
 			this.sound.play( e.type === 'retreat' ? 'whistle_3' : 'whistle_1', e.at, { vol: - 3 } );
 			m.event( e.type === 'retreat' ? `${e.label}: the line is breaking — falling back to re-form` : `${e.label}: officers down, the line closes ranks`,
 				e.type === 'retreat' ? ( ours ? 'bad' : 'good' ) : ( ours ? 'warn' : 'info' ), e.at );

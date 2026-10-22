@@ -230,10 +230,10 @@ export class Mission {
 
 		}
 
-		// leaders snatched by police → group loses heart
+		// leaders snatched by police (arrested, or detained injured by a snatch squad) → group loses heart
 		for ( const g of this.world.groups ) {
 
-			if ( g.faction === FACTION.POLICE || g.leaderState !== 'arrested' || g.leaderReported ) continue;
+			if ( g.faction === FACTION.POLICE || ( g.leaderState !== 'arrested' && ! g.leaderDetained ) || g.leaderReported ) continue;
 			g.leaderReported = true;
 			this.crowd.setGroup( g.id, { morale: 0.15 } );
 			this.onLeaderArrested?.( g );
@@ -304,7 +304,7 @@ export class Mission {
 			{ key: 'c', label: 'Charge', needsSel: true, run: ( x, y ) => this.escalate( 1 ) || this.world.charge( g.squads, x, y ) },
 			{ key: 'a', label: 'Arrest', needsSel: true, run: ( x, y ) => this.world.arrest( g.squads, x, y ) },
 			{ key: 's', label: 'Shield push', needsSel: true, forCordon: true, aim: true, hint: 'squads in a cordon line · S · hold the left button to aim, release to turn and advance', run: ( x, y ) => this.shieldPush( x, y ) },
-			{ key: 'x', label: 'Snatch leader', needsSel: true, run: ( x, y ) => this.snatch( x, y ) },
+			{ key: 'x', label: 'Snatch leader', needsSel: true, hint: 'X near a leader under CCTV · the squad runs them down, detains only them, then returns to its post', run: ( x, y ) => this.snatch( x, y ) },
 			{ key: 'g', label: 'Tear gas', resource: 'gas', run: ( x, y ) => this.useGas( x, y ) },
 			...( this.world.patrols?.cars.some( ( c ) => c.water && c.selectable )
 				? [ { key: 'w', label: 'Water cannon', resource: 'water', needsSel: true, forCars: true, aim: true, hint: 'select the truck · W · hold the left button to aim, release to spray', run: ( x, y ) => this.spray( x, y ) } ] : [] ),
@@ -315,7 +315,7 @@ export class Mission {
 
 	}
 
-	// nearest CCTV-identified leader to the cursor → selected squads go and arrest them
+	// nearest CCTV-identified leader to the cursor → selected squads run them down and detain them (World.snatch)
 	snatch( x, y ) {
 
 		const cands = this.world.groups.filter( ( q ) => q.faction !== FACTION.POLICE && q.identified && q.leaderState === 'active' );
@@ -328,8 +328,7 @@ export class Mission {
 		}
 
 		if ( ! best ) { this.game.sound?.refuse(); this.event( 'No identified leader near the cursor — leaders show up under CCTV coverage', 'warn' ); return; }
-		for ( const s of this.game.squads ) s.snatch = best;
-		this.world.arrest( this.game.squads, ...best.leaderPos );
+		this.world.snatch( this.game.squads, best, this.t );
 		this.event( `Snatch squad sent after the leader of ${best.label}`, 'info', best.leaderPos );
 
 	}

@@ -148,6 +148,16 @@ export class Overlay {
 
 		}
 
+		// cordons standing shields up (braced): a bar along the line
+		for ( const L of new Set( game.world.groups.filter( ( g ) => g.cordon?.braced ).map( ( g ) => g.cordon ) ) ) {
+
+			const [ ax, ay ] = this.toScreen( ...L.a ), [ bx, by ] = this.toScreen( ...L.b );
+			ctx.strokeStyle = 'rgba(43,140,255,0.45)';
+			ctx.lineWidth = 2;
+			ctx.beginPath(); ctx.moveTo( ax, ay ); ctx.lineTo( bx, by ); ctx.stroke();
+
+		}
+
 		// cordons advancing shields up: an arrow to where they are going
 		const lines = new Set( game.world.groups.filter( ( g ) => g.cordon?.push ).map( ( g ) => g.cordon ) );
 		for ( const L of lines ) {

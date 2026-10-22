@@ -266,7 +266,7 @@ export class Hud {
 				</button>` ).join( '' )}
 			</div>
 			<p class="hint" style="margin-top:14px">Drag to pan · wheel to zoom · Space to pause · the city is real: map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, buildings © GURS, stops © LPP.</p>
-			<p class="credit">© 2026 Virostatiq // <a href="https://bloki.si" target="_blank" rel="noopener">bloki.si</a></p>
+			<p class="credit">© 2026 Virostatiq // <a href="https://bloki.si" target="_blank" rel="noopener">bloki.si</a> // <a href="https://github.com/virostatiq/ljubljana-unrest" target="_blank" rel="noopener">GitHub</a></p>
 		</div>` );
 		el.querySelectorAll( '.mcard' ).forEach( ( b ) => b.onclick = () => onPick( missions[ + b.dataset.k ] ) );
 
