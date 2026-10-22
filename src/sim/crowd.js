@@ -207,6 +207,12 @@ export class Crowd {
 
 	}
 
+	compareFaction( member, expected, faction, group ) {
+
+		this.pendingEdits.push( [ member, 6, 0, 0, faction, expected, 0, 0, group, 0, 0, 0 ] );
+
+	}
+
 	// add to agitation / resolve of one agent
 	nudge( i, dAgitation, dResolve ) {
 
@@ -447,6 +453,11 @@ export class Crowd {
 
 			} );
 			If( op.equal( 2 ), () => { st.element( i ).x.assign( b.x ); } );
+			If( op.equal( 6 ), () => {
+
+				If( st.element( i ).x.equal( b.y ).and( st.element( i ).y.equal( c.x ) ), () => { st.element( i ).x.assign( b.x ); } );
+
+			} );
 			If( op.equal( 4 ), () => {
 
 				st.element( i ).y.assign( b.y );
