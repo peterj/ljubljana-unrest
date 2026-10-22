@@ -14,8 +14,10 @@ npm run dev
 Open the URL printed by Vite with the example plugin and scenario ID:
 
 ```text
-http://localhost:5173/?plugin=/examples/hello-scenario.js&m=hello-scenario
+http://localhost:5173/?plugin=/examples/hello-scenario.ts&m=hello-scenario
 ```
+
+The examples are TypeScript, which the Vite dev server compiles on request. A plugin served to a production build must be plain JavaScript.
 
 The factory receives only the public Scenario SDK builders. It does not receive `Mission`, simulation enums, `World`, raw GPU buffers, or the DOM. Do not import game internals from a plugin.
 
@@ -42,7 +44,7 @@ export default ( { defineScenario, place, survive } ) => defineScenario( {
 } );
 ```
 
-See [hello-scenario.js](../examples/hello-scenario.js) for a runnable example. Examples use `menu: false` to stay out of the mission picker while remaining directly loadable by URL.
+See [hello-scenario.ts](../examples/hello-scenario.ts) for a runnable example. The examples type their factory argument with `import type * as Sdk from '../src/game/scenarios/sdk.d.ts'`, the public SDK declarations. Examples use `menu: false` to stay out of the mission picker while remaining directly loadable by URL.
 
 ## Definitions
 
@@ -84,4 +86,4 @@ When enabled, the game asks before importing a remote URL and remembers a confir
 
 The Scenario SDK is an experimental preview, not a full replacement for the built-in mission system. Existing missions stay on their original path until each candidate passes its own parity gate. Scenario-specific directors, protest-side systems, custody workflows, overlays, and full score/result compatibility are still under development. Setting `city` alone does not guarantee map independence; shared host helpers and authored routes may still be Ljubljana-specific.
 
-Run `npm test`, `npm run build`, and `tsc --noEmit --strict --lib ES2022,DOM src/game/scenarios/index.d.ts` when changing the SDK. Add source-backed tests for setup, timing, outcomes, scoring, and player workflows, plus a browser smoke when the host/UI path is involved.
+Run `npm test` and `npm run build` (which runs `npm run typecheck`, including a strict check of `src/game/scenarios/sdk.d.ts`) when changing the SDK. Add source-backed tests for setup, timing, outcomes, scoring, and player workflows, plus a browser smoke when the host/UI path is involved.

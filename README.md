@@ -24,8 +24,10 @@ needs `chrome://flags/#enable-unsafe-webgpu` (and Vulkan). Phones are not suppor
 
 ```bash
 npm install
-npm run dev      # development server
-npm run build    # static site in dist/ (relative URLs: works from any subdirectory)
+npm run dev        # development server
+npm run typecheck  # TypeScript check (no emit; Vite and Node strip the types)
+npm test           # unit tests (Node 22.18+ runs the .ts sources directly)
+npm run build      # typecheck, then static site in dist/ (relative URLs: works from any subdirectory)
 ```
 
 See the [mission plugin authoring guide](docs/PLUGIN_AUTHORING.md) to create and load custom missions.

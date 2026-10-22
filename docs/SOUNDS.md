@@ -7,7 +7,7 @@ attribution required). Source: `https://cdn.pixabay.com/audio/<date>/audio_<id>.
 BBC Sound Effects (sound-effects.bbcrewind.co.uk) has good matches too (Paris riots with shields and smoke grenades,
 police operations room, London demonstrations), but its RemArc licence is personal / educational / research only, so
 none are used. Atmosphere (city rumble, wind, tension drone, radio squelch, gas hiss, water spray, fire crackle, stone
-impacts, accents, the embassy alarm klaxon) is synthesised at runtime with Tone.js (`src/audio/sound.js`). The machine guns
+impacts, accents, the embassy alarm klaxon) is synthesised at runtime with Tone.js (`src/audio/sound.ts`). The machine guns
 in `massacre` reuse `shot_1–3`, pitched up and cut short.
 
 | file | Pixabay title | source | segment (s) |
