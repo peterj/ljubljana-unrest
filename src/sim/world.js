@@ -11,8 +11,10 @@ export const WATER_JET = 10, WATER_RANGE = 28; // water cannon truck: seconds pe
 // aimed further than SHIELD_TURN (rad) off straight ahead, the line first turns to face the aim, then advances
 export const SHIELD_REACH = 40, SHIELD_SPEED = 0.9, SHIELD_LEAD = 3, SHIELD_STALL = 20, SHIELD_TURN = Math.PI / 18;
 // snatch: how far the leader may get from the squad's flow-field goal before it takes a new one (m), how often at most
-// (s), how close the squad must be to count as on the leader's heels (m), and how long it chases without being so (s)
-export const SNATCH_FIELD = 15, SNATCH_REFIELD = 3, SNATCH_REACH = 25, SNATCH_GIVEUP = 45;
+// (s: the pool of fields is small and fills while requests are in flight; between fields the squad re-aims every
+// readback and runs straight at the leader from 20 m), how close the squad must be to count as on the leader's heels (m),
+// and how long it chases without being so (s)
+export const SNATCH_FIELD = 12, SNATCH_REFIELD = 8, SNATCH_REACH = 25, SNATCH_GIVEUP = 45;
 
 export class World {
 
