@@ -7,8 +7,9 @@ export const rand = ( a, b ) => a + Math.random() * ( b - a );
 export const pick = ( arr ) => arr[ Math.floor( Math.random() * arr.length ) ];
 export const WATER_JET = 10, WATER_RANGE = 28; // water cannon truck: seconds per spray, reach (m)
 // shield push: how far a cordon advances at most (m), its pace (m/s), how far the line's anchor may run ahead of its
-// officers before it waits for them (m), and how long it leans on a crowd it cannot move before it stops (s)
-export const SHIELD_REACH = 40, SHIELD_SPEED = 0.9, SHIELD_LEAD = 3, SHIELD_STALL = 20;
+// officers before it waits for them (m), and how long it leans on a crowd it cannot move before it stops (s);
+// aimed further than SHIELD_TURN (rad) off straight ahead, the line first turns to face the aim, then advances
+export const SHIELD_REACH = 40, SHIELD_SPEED = 0.9, SHIELD_LEAD = 3, SHIELD_STALL = 20, SHIELD_TURN = Math.PI / 18;
 
 export class World {
 
@@ -561,8 +562,10 @@ export class World {
 
 	}
 
-	// shield push: where the cordon of the selected squads would end up for a cursor at (x, y) — straight ahead
-	// along its normal, toward the cursor's side, at most SHIELD_REACH. null if none of them stands in a line.
+	// shield push: where the cordon of the selected squads would end up for a cursor at (x, y), at most SHIELD_REACH.
+	// Within SHIELD_TURN of straight ahead (either side) it goes straight along its normal; otherwise toward the
+	// cursor, after turning about its centre to face it (turn: the line it re-forms on first). null if none of them
+	// stands in a line.
 	pushAim( squads, x, y ) {
 
 		const L = squads.find( ( g ) => g.cordon )?.cordon;
@@ -573,21 +576,38 @@ export class World {
 		let nx = - ( b[ 1 ] - a[ 1 ] ) / len, ny = ( b[ 0 ] - a[ 0 ] ) / len;
 		let d = ( x - mx ) * nx + ( y - my ) * ny;
 		if ( d < 0 ) { nx = - nx; ny = - ny; d = - d; }
+		const r = Math.hypot( x - mx, y - my );
+		let turn = null;
+		if ( d < r * Math.cos( SHIELD_TURN ) ) {
+
+			// a → b runs so that the line faces n (lineSquads: facing is ( - dy, dx )), front rank toward the aim
+			const angle = Math.acos( d / r ), h = len / 2;
+			nx = ( x - mx ) / r; ny = ( y - my ) / r; d = r;
+			turn = { angle, a: [ mx - ny * h, my + nx * h ], b: [ mx + ny * h, my - nx * h ] };
+
+		}
+
 		d = Math.min( SHIELD_REACH, d );
-		return { L, mid: [ mx, my ], n: [ nx, ny ], d, a: [ a[ 0 ] + nx * d, a[ 1 ] + ny * d ], b: [ b[ 0 ] + nx * d, b[ 1 ] + ny * d ] };
+		const [ a0, b0 ] = turn ? [ turn.a, turn.b ] : [ a, b ];
+		return { L, mid: [ mx, my ], n: [ nx, ny ], d, turn, a: [ a0[ 0 ] + nx * d, a0[ 1 ] + ny * d ], b: [ b0[ 0 ] + nx * d, b0[ 1 ] + ny * d ] };
 
 	}
 
 	// the cordon advances shields up, a bulldozer: its anchor moves straight ahead at SHIELD_SPEED and waits whenever
-	// the officers fall SHIELD_LEAD behind it (a crowd too dense to move). The whole line goes, whichever of its
-	// squads were selected. Any other order to a squad takes it off the line and out of the push (uncordon).
+	// the officers fall SHIELD_LEAD behind it (a crowd too dense to move). Aimed off its normal, it first re-forms
+	// turned about its centre and advances once lineFormed (or after the time the ends need to swing round).
+	// The whole line goes, whichever of its squads were selected. Any other order to a squad takes it off the
+	// line and out of the push (uncordon).
 	shieldPush( squads, x, y ) {
 
 		const P = this.pushAim( squads, x, y );
 		if ( ! P || P.d < 2 ) return null;
 		const { L } = P;
-		L.push = { n: P.n, d: P.d, done: 0, c0: this.lineCentre( L ), stall: 0 };
+		const turn = P.turn ? { t: 0, max: Math.min( 30, 6 + Math.hypot( L.b[ 0 ] - L.a[ 0 ], L.b[ 1 ] - L.a[ 1 ] ) / 2 * P.turn.angle / 0.8 ) } : null;
+		L.push = { n: P.n, d: P.d, done: 0, c0: this.lineCentre( L ), stall: 0, turn };
 		this.setMode( L.squads, MODE.SHOVE );
+		// same centre, so the squads keep their flow field; with L.push set the line re-forms shields up
+		if ( turn ) this.lineSquads( L.squads, P.turn.a, P.turn.b, this.intel?.pos, L, { keepField: true } );
 		this.onFx?.( 'shield', P.mid[ 0 ] + P.n[ 0 ] * P.d, P.mid[ 1 ] + P.n[ 1 ] * P.d );
 		return L;
 
@@ -602,6 +622,29 @@ export class World {
 
 	}
 
+	// whether most officers of a line on their feet stand on it (within its depth), per the last intel readback
+	lineFormed( L ) {
+
+		const I = this.intel;
+		if ( ! I ) return true;
+		const { pos, st } = I, [ a, b ] = [ L.a, L.b ];
+		const len = Math.hypot( b[ 0 ] - a[ 0 ], b[ 1 ] - a[ 1 ] ) || 1;
+		const dx = ( b[ 0 ] - a[ 0 ] ) / len, dy = ( b[ 1 ] - a[ 1 ] ) / len;
+		let up = 0, on = 0;
+		for ( const g of L.squads ) for ( const i of g.members ) {
+
+			if ( st[ i * 4 ] !== FACTION.POLICE ) continue;
+			up ++;
+			const px = pos[ i * 2 ] - a[ 0 ], py = pos[ i * 2 + 1 ] - a[ 1 ];
+			const t = Math.max( 0, Math.min( len, px * dx + py * dy ) );
+			if ( Math.hypot( px - dx * t, py - dy * t ) < 3.5 ) on ++;
+
+		}
+
+		return on >= up * 0.8;
+
+	}
+
 	_pushStep( L, dt ) {
 
 		const P = L.push, label = () => L.squads.map( ( g ) => g.label ).join( ' + ' );
@@ -613,6 +656,16 @@ export class World {
 
 		};
 		if ( ! L.squads.length ) { L.push = null; return; }
+		if ( P.turn ) {
+
+			// turning to face the aim: no advance (and no stall) until the line stands
+			P.turn.t += dt;
+			if ( P.turn.t < P.turn.max && ! this.lineFormed( L ) ) return;
+			P.turn = null;
+			P.c0 = this.lineCentre( L ) ?? P.c0;
+
+		}
+
 		const c = this.lineCentre( L );
 		P.c0 = P.c0 ?? c;
 		const moved = c && P.c0 ? ( c[ 0 ] - P.c0[ 0 ] ) * P.n[ 0 ] + ( c[ 1 ] - P.c0[ 1 ] ) * P.n[ 1 ] : P.done;

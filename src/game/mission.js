@@ -303,7 +303,7 @@ export class Mission {
 			{ key: 'k', label: 'Kettle', needsSel: true, run: ( x, y ) => this.escalate( 1 ) || this.world.kettle( g.squads, x, y, Math.max( 14, Math.sqrt( g.squads.reduce( ( s, q ) => s + q.members.length, 0 ) ) * 2.6 ), this.world.intel.pos ) },
 			{ key: 'c', label: 'Charge', needsSel: true, run: ( x, y ) => this.escalate( 1 ) || this.world.charge( g.squads, x, y ) },
 			{ key: 'a', label: 'Arrest', needsSel: true, run: ( x, y ) => this.world.arrest( g.squads, x, y ) },
-			{ key: 's', label: 'Shield push', needsSel: true, forCordon: true, aim: true, hint: 'squads in a cordon line · S · hold the left button to aim, release to advance', run: ( x, y ) => this.shieldPush( x, y ) },
+			{ key: 's', label: 'Shield push', needsSel: true, forCordon: true, aim: true, hint: 'squads in a cordon line · S · hold the left button to aim, release to turn and advance', run: ( x, y ) => this.shieldPush( x, y ) },
 			{ key: 'x', label: 'Snatch leader', needsSel: true, run: ( x, y ) => this.snatch( x, y ) },
 			{ key: 'g', label: 'Tear gas', resource: 'gas', run: ( x, y ) => this.useGas( x, y ) },
 			...( this.world.patrols?.cars.some( ( c ) => c.water && c.selectable )
@@ -338,10 +338,10 @@ export class Mission {
 	shieldPush( x, y ) {
 
 		const L = this.world.shieldPush( this.game.squads, x, y );
-		if ( ! L ) { this.game.sound?.refuse(); this.event( 'Aim ahead of the line to push (up to 40 m)', 'warn' ); return null; }
+		if ( ! L ) { this.game.sound?.refuse(); this.event( 'Aim away from the line to push (up to 40 m)', 'warn' ); return null; }
 		this.escalate( 1 );
 		this.game.sound?.order( 's', [ x, y ] );
-		this.event( `${L.squads.map( ( q ) => q.label ).join( ' + ' )}: shields up, advancing ${Math.round( L.push.d )} m`, 'info', [ x, y ] );
+		this.event( `${L.squads.map( ( q ) => q.label ).join( ' + ' )}: shields up, ${L.push.turn ? 'turning to face the push, then ' : ''}advancing ${Math.round( L.push.d )} m`, 'info', [ x, y ] );
 		return L;
 
 	}

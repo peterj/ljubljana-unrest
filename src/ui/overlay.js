@@ -162,7 +162,7 @@ export class Overlay {
 			ctx.setLineDash( [] );
 			this.arrowHead( tx, ty, Math.atan2( ty - y, tx - x ), `rgba(${col},0.9)` );
 			ctx.fillStyle = `rgba(${col},0.95)`;
-			ctx.fillText( P.stalled ? 'SHIELDS UP · STALLED' : 'SHIELDS UP', x, y + 16 );
+			ctx.fillText( P.turn ? 'SHIELDS UP · TURNING' : P.stalled ? 'SHIELDS UP · STALLED' : 'SHIELDS UP', x, y + 16 );
 
 		}
 
@@ -183,6 +183,18 @@ export class Overlay {
 				ctx.setLineDash( [] );
 				ctx.fillStyle = `rgba(43,140,255,${A.held ? 0.16 : 0.07})`;
 				ctx.beginPath(); ctx.arc( x, y, R, 0, Math.PI * 2 ); ctx.fill();
+				// aimed off its normal: the line turned to face the aim, where it re-forms before advancing
+				if ( P.turn ) {
+
+					const [ ta, tb ] = [ this.toScreen( ...P.turn.a ), this.toScreen( ...P.turn.b ) ];
+					ctx.lineWidth = 2;
+					ctx.strokeStyle = `rgba(43,140,255,${A.held ? 0.7 : 0.4})`;
+					ctx.setLineDash( [ 4, 4 ] );
+					ctx.beginPath(); ctx.moveTo( ...ta ); ctx.lineTo( ...tb ); ctx.stroke();
+					ctx.setLineDash( [] );
+
+				}
+
 				// the line where it will stop, and the way there
 				ctx.lineWidth = A.held ? 4 : 3;
 				ctx.strokeStyle = `rgba(43,140,255,${A.held ? 0.95 : 0.6})`;
@@ -191,7 +203,8 @@ export class Overlay {
 				ctx.beginPath(); ctx.moveTo( x, y ); ctx.lineTo( tx, ty ); ctx.stroke();
 				this.arrowHead( tx, ty, Math.atan2( ty - y, tx - x ), 'rgba(43,140,255,0.95)' );
 				ctx.fillStyle = 'rgba(160,200,255,0.95)';
-				ctx.fillText( `SHIELD PUSH ${Math.round( P.d )} m · ${A.held ? 'release to advance' : 'hold the left button to aim'}`, x, y - R - 6 );
+				const turn = P.turn ? ` · TURN ${Math.round( P.turn.angle * 180 / Math.PI )}°` : '';
+				ctx.fillText( `SHIELD PUSH${turn} ${Math.round( P.d )} m · ${A.held ? ( P.turn ? 'release to turn and advance' : 'release to advance' ) : 'hold the left button to aim'}`, x, y - R - 6 );
 
 			}
 
