@@ -543,7 +543,7 @@ export class Sound {
 		const arrested = C.arrested - prev.arrested;
 		if ( arrested > 0 && m.side === 'police' ) {
 
-			const sq = W.groupsOf( FACTION.POLICE ).filter( ( q ) => q.center && q.mode === MODE.ARREST );
+			const sq = W.groupsOf( FACTION.POLICE ).filter( ( q ) => q.center && ( q.mode === MODE.ARREST || q.mode === MODE.SNATCH ) );
 			const at = ( sq.length ? pick( sq ) : null )?.center ?? null;
 			for ( let k = 0; k < Math.min( 3, arrested ); k ++ ) this.play( 'handcuffs', at, { delay: k * 0.4 + Math.random() * 0.2, vol: - 2 } );
 			if ( this.throttle( 'arrestVoice', 22 ) ) this.play( Math.random() < 0.6 ? 'voice_arrest' : 'voice_silent', at, { delay: 0.6, vol: - 2 } );

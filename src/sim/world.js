@@ -10,6 +10,9 @@ export const WATER_JET = 10, WATER_RANGE = 28; // water cannon truck: seconds pe
 // officers before it waits for them (m), and how long it leans on a crowd it cannot move before it stops (s);
 // aimed further than SHIELD_TURN (rad) off straight ahead, the line first turns to face the aim, then advances
 export const SHIELD_REACH = 40, SHIELD_SPEED = 0.9, SHIELD_LEAD = 3, SHIELD_STALL = 20, SHIELD_TURN = Math.PI / 18;
+// snatch: how far the leader may get from the squad's flow-field goal before it takes a new one (m), how often at most
+// (s), how close the squad must be to count as on the leader's heels (m), and how long it chases without being so (s)
+export const SNATCH_FIELD = 15, SNATCH_REFIELD = 3, SNATCH_REACH = 25, SNATCH_GIVEUP = 45;
 
 export class World {
 
@@ -415,6 +418,7 @@ export class World {
 	async moveSquads( squads, x, y, { layer, valid = () => true } = {} ) {
 
 		if ( ! valid() ) return false;
+		this.endSnatch( squads );
 		this.uncordon( squads );
 		const L = layer ?? await this.fieldTo( x, y, 12 );
 		if ( ! valid() ) return false;
@@ -439,7 +443,8 @@ export class World {
 	async lineSquads( squads, a, b, pos, cordon, { keepField = false, layer, valid = () => true } = {} ) {
 
 		if ( ! valid() ) return false;
-		this.uncordon( squads );
+		this.endSnatch( squads );
+		this.uncordon( squads.filter( ( g ) => ! cordon || g.cordon !== cordon ) );
 		const mx = ( a[ 0 ] + b[ 0 ] ) / 2, my = ( a[ 1 ] + b[ 1 ] ) / 2;
 		let dx = b[ 0 ] - a[ 0 ], dy = b[ 1 ] - a[ 1 ];
 		const len = Math.max( 4, Math.hypot( dx, dy ) );
@@ -447,6 +452,7 @@ export class World {
 		const nx = - dy, ny = dx; // facing
 		const st = this.intel?.st;
 		const officers = squads.flatMap( ( g ) => g.members ).filter( ( i ) => ! st || st[ i * 4 ] === FACTION.POLICE );
+		if ( cordon ) for ( const g of squads ) if ( ! cordon.squads.includes( g ) ) cordon.n0 += this.standing( g ); // joining it
 		cordon = cordon ?? { n0: officers.length, len0: len, closed: 0, retreatAt: - 1e9 }; // strength and length when formed
 		Object.assign( cordon, { a, b, squads: [ ...squads ] } );
 		for ( const g of squads ) g.cordon = cordon;
@@ -480,6 +486,7 @@ export class World {
 	async kettle( squads, x, y, radius, pos, { tighten = 0.5, layer, valid = () => true } = {} ) {
 
 		if ( ! valid() ) return false;
+		this.endSnatch( squads );
 		this.uncordon( squads );
 		this.onFx?.( 'kettle', x, y );
 		const officers = squads.flatMap( ( g ) => g.members );
@@ -514,6 +521,7 @@ export class World {
 	async charge( squads, x, y, { layer, valid = () => true } = {} ) {
 
 		if ( ! valid() ) return false;
+		this.endSnatch( squads );
 		this.uncordon( squads );
 		this.onFx?.( 'charge', x, y );
 		const L = layer ?? await this.fieldTo( x, y, 6 );
@@ -534,6 +542,7 @@ export class World {
 	async arrest( squads, x, y, r = 5, aim = null, { layer, valid = () => true } = {} ) {
 
 		if ( ! valid() ) return false;
+		this.endSnatch( squads );
 		this.uncordon( squads );
 		const L = layer ?? await this.fieldTo( x, y, r );
 		if ( ! valid() ) return false;
@@ -550,13 +559,107 @@ export class World {
 
 	}
 
+	// a squad leaving a line takes its officers off the line's strength, so the rest do not read it as losses
 	uncordon( squads ) {
 
 		for ( const g of squads ) {
 
 			if ( ! g.cordon ) continue;
 			g.cordon.squads = g.cordon.squads.filter( ( q ) => q !== g );
+			g.cordon.n0 = Math.max( 0, g.cordon.n0 - this.standing( g ) );
 			g.cordon = null;
+
+		}
+
+	}
+
+	// officers of a squad on their feet (per the last intel readback)
+	standing( g ) {
+
+		const st = this.intel?.st;
+		return st ? g.members.filter( ( i ) => st[ i * 4 ] === FACTION.POLICE ).length : g.members.length;
+
+	}
+
+	// the player's snatch squad: the squads run at target's leader (MODE.SNATCH) and remember their post (where they stood,
+	// or their cordon line) to go back to. snatchStep follows the leader on every intel readback; any other order calls
+	// the snatch off (endSnatch).
+	snatch( squads, target, now ) {
+
+		this.endSnatch( squads );
+		for ( const g of squads ) {
+
+			const post = g.cordon ? { cordon: g.cordon } : { at: [ ...( g.anchor ?? g.center ?? target.leaderPos ) ] };
+			g.snatchPlan = { post, since: now, close: now, fieldAt: - Infinity, field: null };
+			g.snatch = target;
+
+		}
+
+		this.uncordon( squads );
+		for ( const g of squads ) g.tighten = null;
+		this.setMode( squads, MODE.SNATCH, { aggression: 0.3 } );
+		this._chase( squads, now );
+
+	}
+
+	// aim the squads at their leader where they are now (cheap) and take a new flow field only when the leader has got
+	// SNATCH_FIELD from the last one, at most every SNATCH_REFIELD s (the pool of fields is small)
+	_chase( squads, now ) {
+
+		for ( const g of squads ) {
+
+			const S = g.snatchPlan, p = g.snatch.leaderPos;
+			g.arrestAt = p;
+			this.crowd.setGroup( g.id, { ax: p[ 0 ], ay: p[ 1 ] } );
+			if ( S.field && Math.hypot( p[ 0 ] - S.field[ 0 ], p[ 1 ] - S.field[ 1 ] ) <= SNATCH_FIELD ) continue;
+			if ( now - S.fieldAt < SNATCH_REFIELD ) continue;
+			S.field = p;
+			S.fieldAt = now;
+			let field;
+			try { field = this.fieldTo( p[ 0 ], p[ 1 ], SNATCH_FIELD ); } catch { continue; } // pool full: run straight at them for now
+			field.then( ( L ) => { if ( g.snatchPlan === S ) this.setLayer( g, L ); } );
+
+		}
+
+	}
+
+	// a snatch squad, once per intel readback -> 'arrested' | 'detained' (the leader went down injured and the squad
+	// reached them) | 'abandoned' (leader gone, squad wiped out, or SNATCH_GIVEUP s without getting within SNATCH_REACH)
+	// when it ends, and the squad heads back to its post; null while it goes on
+	snatchStep( g, now ) {
+
+		const S = g.snatchPlan, t = g.snatch;
+		if ( ! S ) return null;
+		const p = t.leaderPos;
+		if ( g.center && Math.hypot( g.center[ 0 ] - p[ 0 ], g.center[ 1 ] - p[ 1 ] ) < SNATCH_REACH ) S.close = now;
+		let end = null;
+		if ( t.leaderState === 'arrested' ) end = 'arrested';
+		else if ( t.leaderState === 'injured' ) {
+
+			if ( this.countNear( p[ 0 ], p[ 1 ], 2.5, FACTION.POLICE ) > 0 ) { t.leaderDetained = true; end = 'detained'; }
+
+		} else if ( t.leaderState !== 'active' || ! g.alive ) end = 'abandoned';
+		if ( ! end && now - S.close > SNATCH_GIVEUP ) end = 'abandoned';
+		if ( end ) { this.endSnatch( [ g ], { back: true } ); return end; }
+		this._chase( [ g ], now );
+		return null;
+
+	}
+
+	// call off the snatch of any of the squads (the player's; others' are left alone); back: they return to their post,
+	// re-joining their cordon line where it is now
+	endSnatch( squads, { back = false } = {} ) {
+
+		for ( const g of squads ) {
+
+			const S = g.snatchPlan;
+			if ( ! S ) continue;
+			g.snatchPlan = null;
+			g.snatch = null;
+			if ( ! back ) continue;
+			const L = S.post.cordon;
+			if ( L ) this.lineSquads( [ ...L.squads, g ], L.a, L.b, this.intel?.pos, L );
+			else this.moveSquads( [ g ], ...S.post.at );
 
 		}
 

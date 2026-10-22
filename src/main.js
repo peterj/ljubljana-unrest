@@ -265,6 +265,22 @@ class Game {
 			if ( g.justIdentified && m.side === 'police' && g.alive > 20 ) ( this.newlyIdentified ??= [] ).push( g );
 			if ( ! g.snatch ) continue;
 			const t = g.snatch;
+			// the player's snatch squads (World.snatch): one message per leader, however many squads went for them
+			if ( g.snatchPlan ) {
+
+				const end = this.world.snatchStep( g, m.t );
+				if ( end === 'abandoned' ) m.event( `${g.label}: lost the leader of ${t.label}, back to post`, 'warn', g.center );
+				else if ( end && ! t.snatchReported ) {
+
+					t.snatchReported = true;
+					m.event( `${end === 'detained' ? 'Injured leader' : 'Leader'} of ${t.label} ${end} — the group is losing heart`, 'good', t.leaderPos );
+
+				}
+
+				continue;
+
+			}
+
 			if ( t.leaderState === 'active' ) {
 
 				const moved = ! g.lastSnatch || Math.hypot( g.lastSnatch[ 0 ] - t.leaderPos[ 0 ], g.lastSnatch[ 1 ] - t.leaderPos[ 1 ] ) > 12;

@@ -40,10 +40,14 @@ export const MODE = {
 	MARCH: 0, HOLD: 1, RIOT: 2, DISPERSE: 3, SIT: 4, SHIELD: 5, PUSH: 6, STORM: 7, PANIC: 9, // protesters / counter-protesters
 	// SHIELD: a march behind locked arms and banners · PUSH / STORM: fired-up marches that lean on / break police lines
 	// PANIC: civilians or bystanders running for their lives (their flow field + away from u.panicAt), nobody fights
-	MOVE: 0, FORMATION: 1, CHARGE: 2, ARREST: 3, SHOVE: 8, // police
+	MOVE: 0, FORMATION: 1, CHARGE: 2, ARREST: 3, SHOVE: 8, SNATCH: 10, // police
 	// SHOVE: a cordon advancing shields up (World.shieldPush): a formation that pushes crowds back hard and takes fewer blows
+	// SNATCH: a squad after a group leader (World.snatch): runs at them, shoulders others aside, detains only leaders
 };
 const SHOVE_K = 2.2, SHOVE_HOLD = 0.5, SHOVE_ARMOUR = 0.5; // shield push: × push on civilians · × push back on officers · × blows taken
+// snatch: × speed · × push on civilians other than leaders · × blows dealt · × how much a leader's own group shields them ·
+// distance (m) from the leader within which officers run straight at them
+const SNATCH_SPEED = 1.8, SNATCH_K = 1.8, SNATCH_FORCE = 0.15, SNATCH_GUARD = 0.5, SNATCH_CHASE = 20;
 // stats buffer layout (uint counters, recomputed every step)
 export const STAT = {
 	PROT: 0, PROT_AG: 1, POLICE: 2, COUNTER: 3, BYSTANDER: 4, SITTERS: 5,
@@ -565,6 +569,7 @@ export class Crowd {
 			// police holding (or advancing in) a formation: officers seek their own slot round the group anchor
 			const shove = isPol.and( mode.equal( MODE.SHOVE ) );
 			const formation = isPol.and( mode.equal( MODE.FORMATION ) ).or( shove );
+			const snatch = isPol.and( mode.equal( MODE.SNATCH ) );
 			const panic = isPol.not().and( mode.equal( MODE.PANIC ) );
 
 			// ---- hierarchy: read own leader's state
@@ -596,8 +601,10 @@ export class Crowd {
 				} );
 
 			} );
-			// arrest / charge squads close in on their target point (gB.xy) once the flow field runs out
-			If( isPol.and( mode.greaterThan( 1.5 ) ).and( mode.lessThan( 3.5 ) ).and( length( flow ).lessThan( 0.05 ) ), () => {
+			// arrest / charge squads close in on their target point (gB.xy) once the flow field runs out; snatch squads
+			// run straight at the leader (gB.xy follows them) from SNATCH_CHASE out
+			If( isPol.and( mode.greaterThan( 1.5 ).and( mode.lessThan( 3.5 ) ).and( length( flow ).lessThan( 0.05 ) )
+				.or( snatch.and( length( gb.xy.sub( p ) ).lessThan( SNATCH_CHASE ).or( length( flow ).lessThan( 0.05 ) ) ) ) ), () => {
 
 				const toT = gb.xy.sub( p );
 				dir.assign( toT.div( max( length( toT ), 1 ) ) );
@@ -730,8 +737,8 @@ export class Crowd {
 			const base = select( isPol, 1.45, select( isBy, 1.15, 1.25 ) ).mul( ga.z );
 			// police charge doubles speed; holding protesters only shuffle; sitters stay put
 			const modeK = select( isPol.and( mode.equal( MODE.CHARGE ) ), 2.0,
-				select( isPol.and( mode.equal( MODE.ARREST ) ), 1.2, select( panic, 1.35,
-					select( isCiv.and( mode.equal( MODE.HOLD ) ).and( leaving.not() ), 0.12, select( shield, 0.55, 1.0 ) ) ) ) );
+				select( isPol.and( mode.equal( MODE.ARREST ) ), 1.2, select( snatch, SNATCH_SPEED, select( panic, 1.35,
+					select( isCiv.and( mode.equal( MODE.HOLD ) ).and( leaving.not() ), 0.12, select( shield, 0.55, 1.0 ) ) ) ) ) );
 			// civilian leaders wait for their group (gB.xy holds the group's centre, written by the CPU each readback) —
 			// only when it is behind them: a leader that has fallen behind its group must catch up, not slow down
 			const toC = gb.xy.sub( p );
@@ -778,6 +785,7 @@ export class Crowd {
 			const nCnt = float( 0 ).toVar();
 			const contact = float( 0 ).toVar();
 			const arresting = float( 0 ).toVar();
+			const snatched = float( 0 ).toVar(); // snatch officers holding this (leader)
 			const dmgPolice = float( 0 ).toVar();
 			const dmgOther = float( 0 ).toVar();
 			const c = cellOf( p );
@@ -827,8 +835,10 @@ export class Crowd {
 										const jMode = gA.element( uint( sj.y ) ).w;
 										const lean = select( shield, 0.4, select( push, 0.55, select( storm, 0.2, 1.0 ) ) );
 										// a shield push drives the crowd back and leans into it
-										const shoveBy = select( jMode.equal( MODE.STORM ), 3.0, select( jMode.equal( MODE.PUSH ), 1.6, 1.0 ) ).mul( select( shove, SHOVE_HOLD, 1.0 ) );
-										const mass = select( isCiv.and( jPol ), u.policeMass.mul( lean ).mul( select( jMode.equal( MODE.SHOVE ), SHOVE_K, 1.0 ) ), select( isPol.and( jCiv ), shoveBy.div( u.policeMass ), part ) )
+										// a snatch squad shoulders everyone but leaders aside on its way in
+										const shoveBy = select( jMode.equal( MODE.STORM ), 3.0, select( jMode.equal( MODE.PUSH ), 1.6, 1.0 ) ).mul( select( shove.or( snatch ), SHOVE_HOLD, 1.0 ) );
+										const polK = select( jMode.equal( MODE.SHOVE ), SHOVE_K, select( jMode.equal( MODE.SNATCH ).and( isLeader.not() ), SNATCH_K, 1.0 ) );
+										const mass = select( isCiv.and( jPol ), u.policeMass.mul( lean ).mul( polK ), select( isPol.and( jCiv ), shoveBy.div( u.policeMass ), part ) )
 											.mul( select( isSitter, 0.35, 1.0 ) );
 										force.addAssign( n.mul( overlap.mul( K_REP ).mul( mass ) ) );
 										const rv = dot( v.sub( vel.element( j ) ), n );
@@ -852,12 +862,15 @@ export class Crowd {
 											// officer aggression: squad stance + own stress; arresting officers restrain rather than strike
 											const jga = gA.element( uint( sj.y ) );
 											const isArr = jga.w.equal( MODE.ARREST );
+											const isSn = jga.w.equal( MODE.SNATCH );
 											const pAgg = gB.element( uint( sj.y ) ).w.add( sj.z );
 											// a line that is holding pushes with shields and strikes those who fight it
 											const restraint = select( jga.w.equal( MODE.FORMATION ).or( jga.w.equal( MODE.SHOVE ) ), mix( u.holdRestraint, float( 1 ), smoothstep( 0.5, 0.9, ag ) ), float( 1 ) );
-											dmgPolice.addAssign( u.policeForce.mul( pAgg ).mul( select( isArr, 0.25, 1.0 ) ).mul( restraint ).mul( select( shield, 0.6, 1.0 ) ) );
-											// only arrest squads detain anyone they hold; other officers in contact only grab those who fight
-											arresting.addAssign( select( isArr, 1.0, smoothstep( 0.6, 0.9, ag ).mul( select( panic, 0.0, 0.25 ) ) ) );
+											dmgPolice.addAssign( u.policeForce.mul( pAgg ).mul( select( isArr, 0.25, select( isSn, SNATCH_FORCE, 1.0 ) ) ).mul( restraint ).mul( select( shield, 0.6, 1.0 ) ) );
+											// only arrest squads detain anyone they hold, snatch squads only leaders; other officers in contact only
+											// grab those who fight
+											arresting.addAssign( select( isArr, 1.0, select( isSn, select( isLeader, 1.0, 0.0 ), smoothstep( 0.6, 0.9, ag ).mul( select( panic, 0.0, 0.25 ) ) ) ) );
+											snatched.addAssign( select( isSn.and( isLeader ), 1.0, 0.0 ) );
 
 										} ).ElseIf( isPol, () => {
 
@@ -934,11 +947,13 @@ export class Crowd {
 			const health = select( dmg.greaterThan( 0 ), s.w.sub( dmg.mul( dt ) ), min( s.w.add( u.recover.mul( dt ) ), 1 ) );
 			const facN = fac.toVar();
 			If( health.lessThanEqual( 0 ), () => { facN.assign( fac.add( select( dmgPolice.greaterThan( dmgOther ), 10, 20 ) ) ); } );
-			// arrest: officers in arrest mode in contact accumulate progress; defenders packed around slow it
+			// arrest: officers in arrest mode in contact accumulate progress; defenders packed around slow it (a leader held by
+			// a snatch squad, less)
 			const prog = select( isCiv, e.z, float( 0 ) ).toVar();
 			If( isCiv, () => {
 
-				const rate = arresting.mul( u.arrestRate ).mul( select( shield, 0.33, 1.0 ) ).sub( nCnt.mul( 0.04 ) ).div( ag.mul( 0.8 ).add( 1 ) );
+				const guard = select( snatched.greaterThan( 0 ), 0.04 * SNATCH_GUARD, 0.04 );
+				const rate = arresting.mul( u.arrestRate ).mul( select( shield, 0.33, 1.0 ) ).sub( nCnt.mul( guard ) ).div( ag.mul( 0.8 ).add( 1 ) );
 				prog.assign( select( arresting.greaterThan( 0 ), clamp( prog.add( rate.mul( dt ) ), 0, 1 ), max( prog.sub( dt.mul( 0.1 ) ), 0 ) ) );
 				If( prog.greaterThanEqual( 1 ), () => { facN.assign( select( isSitter, float( FACTION.ARRESTED_SITTER ), float( FACTION.ARRESTED ) ) ); } );
 
