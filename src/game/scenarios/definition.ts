@@ -108,6 +108,31 @@ export function survive( options ) {
 
 }
 
+export function holdCrowd( options ) {
+
+	fields( options, [ 'id', 'at', 'radius', 'minimumPeople', 'holdSeconds', 'timeoutSeconds', 'minimumAlive', 'minimumAliveAfter',
+		'label', 'reason', 'populationFailureReason', 'timeoutReason' ], 'objective' );
+	check( typeof options.id === 'string' && ID.test( options.id ), 'objective.id', 'must be a lowercase slug' );
+	check( typeof options.at === 'string' || Array.isArray( options.at ), 'objective.at', 'must be a location alias or coordinates' );
+	const at = Array.isArray( options.at ) ? point( options.at, 'objective.at' ) : options.at;
+	const { radius, minimumPeople, holdSeconds, timeoutSeconds, minimumAlive = 0, minimumAliveAfter = 0 } = options;
+	check( Number.isFinite( radius ) && radius > 0 && radius <= 1000, 'objective.radius', 'must be positive and at most 1000 meters' );
+	check( Number.isInteger( minimumPeople ) && minimumPeople > 0, 'objective.minimumPeople', 'must be a positive integer' );
+	check( Number.isFinite( holdSeconds ) && holdSeconds > 0, 'objective.holdSeconds', 'must be positive and finite' );
+	check( Number.isFinite( timeoutSeconds ) && timeoutSeconds >= holdSeconds, 'objective.timeoutSeconds', 'must be finite and at least holdSeconds' );
+	check( Number.isInteger( minimumAlive ) && minimumAlive >= 0, 'objective.minimumAlive', 'must be a non-negative integer' );
+	check( Number.isFinite( minimumAliveAfter ) && minimumAliveAfter >= 0 && minimumAliveAfter <= timeoutSeconds,
+		'objective.minimumAliveAfter', 'must be between zero and timeoutSeconds' );
+	for ( const key of [ 'label', 'reason', 'populationFailureReason', 'timeoutReason' ] ) if ( options[ key ] !== undefined ) {
+		check( text( options[ key ] ), `objective.${key}`, 'must be non-empty text' );
+	}
+	return Object.freeze( { kind: 'hold-crowd', id: options.id, at, radius, minimumPeople, holdSeconds, timeoutSeconds, minimumAlive, minimumAliveAfter,
+		label: options.label ?? 'Hold the square', reason: options.reason ?? 'The crowd held the square.',
+		populationFailureReason: options.populationFailureReason ?? 'The protest fizzled out.',
+		timeoutReason: options.timeoutReason ?? 'The square was never held long enough.' } );
+
+}
+
 export function preventClash( options ) {
 
 	fields( options, [ 'id', 'seconds', 'label', 'reason', 'failureReason' ], 'objective' );
@@ -212,10 +237,10 @@ function opinionPolicy( value = {} ) {
 
 export function defineScenario( options ) {
 
-	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'map', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion' ], 'scenario' );
+	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'map', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion', 'hud' ], 'scenario' );
 	check( typeof options.id === 'string' && ID.test( options.id ), 'scenario.id', 'must be a lowercase slug' );
 	for ( const key of [ 'title', 'subtitle', 'brief' ] ) check( text( options[ key ] ), `scenario.${key}`, 'must be a non-empty string' );
-	check( options.side === undefined || options.side === 'police', 'scenario.side', 'this SDK preview supports police scenarios only' );
+	check( options.side === undefined || [ 'police', 'protest' ].includes( options.side ), 'scenario.side', 'must be police or protest' );
 	check( options.city == null || ( typeof options.city === 'string' && /^[a-z0-9_-]+$/.test( options.city ) ), 'scenario.city', 'must be a city id' );
 	check( options.map == null || ( typeof options.map === 'string' && /^[a-z0-9_-]+$/.test( options.map ) ), 'scenario.map', 'must be a map name' );
 	for ( const key of [ 'goals', 'tips' ] ) check( dense( options[ key ] ?? [], text ), `scenario.${key}`, 'must be a dense array of non-empty strings' );
@@ -224,6 +249,7 @@ export function defineScenario( options ) {
 	check( options.menu === undefined || typeof options.menu === 'boolean', 'scenario.menu', 'must be a boolean' );
 	check( options.seed == null || ( Number.isInteger( options.seed ) && options.seed >= 0 && options.seed <= 0xffffffff ), 'scenario.seed', 'must be an unsigned 32-bit integer' );
 	check( options.phase == null || typeof options.phase === 'function', 'scenario.phase', 'must be a synchronous phase-text function' );
+	check( options.hud == null || typeof options.hud === 'function', 'scenario.hud', 'must be a synchronous HUD-rows function' );
 	const locations = Object.create( null );
 	fields( options.locations ?? {}, Object.keys( options.locations ?? {} ), 'scenario.locations' );
 	for ( const [ id, reference ] of Object.entries( options.locations ?? {} ) ) {
@@ -240,7 +266,7 @@ export function defineScenario( options ) {
 
 	}
 
-	check( Array.isArray( options.objectives ) && options.objectives.length === 1 && [ 'survive', 'protect', 'extract', 'hold-building', 'prevent-clash', 'escort-convoy' ].includes( options.objectives[ 0 ]?.kind ),
+	check( Array.isArray( options.objectives ) && options.objectives.length === 1 && [ 'survive', 'protect', 'extract', 'hold-building', 'hold-crowd', 'prevent-clash', 'escort-convoy' ].includes( options.objectives[ 0 ]?.kind ),
 		'scenario.objectives', 'this SDK preview requires exactly one supported objective' );
 	check( dense( options.behaviors ?? [], ( entry ) => entry?.kind === 'behavior' ), 'scenario.behaviors', 'must be a dense array of behavior attachments' );
 	const behaviors = ( options.behaviors ?? [] ).map( behaviorAttachment );
@@ -251,17 +277,18 @@ export function defineScenario( options ) {
 	const indicators = metricIndicators( options.indicators ?? [] );
 	const { kind, ...objective } = options.objectives[ 0 ];
 	const resources = resourceDefinitions( options.resources ), commands = commandDefinitions( options.commands, resources );
+	check( options.side !== 'protest' || commands.length === 0, 'scenario.commands', 'police commands are unavailable to protest scenarios' );
 	const initiallyLockedCommands = options.initiallyLockedCommands ?? [];
 	check( dense( initiallyLockedCommands, ( id ) => typeof id === 'string' && commands.some( ( command ) => command.id === id ) ),
 		'scenario.initiallyLockedCommands', 'must be a dense list of declared command IDs' );
 	check( new Set( initiallyLockedCommands ).size === initiallyLockedCommands.length, 'scenario.initiallyLockedCommands', 'IDs must be unique' );
 	return Object.freeze( { kind: 'scenario', sdkVersion: SDK_VERSION, id: options.id, title: options.title,
-		subtitle: options.subtitle, brief: options.brief, side: 'police', city: options.city ?? null, map: options.map ?? null,
+		subtitle: options.subtitle, brief: options.brief, side: options.side ?? 'police', city: options.city ?? null, map: options.map ?? null,
 		goals: Object.freeze( [ ...( options.goals ?? [] ) ] ), tips: Object.freeze( [ ...( options.tips ?? [] ) ] ), menu: options.menu ?? true,
 		locations: Object.freeze( locations ), setup: options.setup, score: options.score ?? null, seed: options.seed ?? null,
-		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null, opinion: opinionPolicy( options.opinion ),
+		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null, hud: options.hud ?? null, opinion: opinionPolicy( options.opinion ),
 		initiallyLockedCommands: Object.freeze( [ ...initiallyLockedCommands ] ), resources, commands,
-		objectives: Object.freeze( [ kind === 'hold-building' ? holdBuilding( objective ) : kind === 'escort-convoy' ? escortConvoy( objective ) : kind === 'prevent-clash' ? preventClash( objective )
+		objectives: Object.freeze( [ kind === 'hold-building' ? holdBuilding( objective ) : kind === 'hold-crowd' ? holdCrowd( objective ) : kind === 'escort-convoy' ? escortConvoy( objective ) : kind === 'prevent-clash' ? preventClash( objective )
 			: kind === 'extract' ? extract( objective ) : kind === 'protect' ? protect( objective ) : survive( objective ) ] ) } );
 
 }

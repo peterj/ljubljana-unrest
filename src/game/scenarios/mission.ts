@@ -95,7 +95,9 @@ export function scenarioMission( value ) {
 			if ( ! [ 'running', 'paused' ].includes( this.runtime.state ) ) return true;
 			try {
 
-				for ( const handle of this.selectionHandles( action.units ) ) this.runtime.playerMove( handle, action.at, action.type === 'line' ? { line: action.a } : {} );
+				const kind = definition.side === 'protest' ? 'crowd' : 'squad';
+				for ( const handle of this.selectionHandles( action.units, kind ) ) this.runtime.playerMove( handle, action.at,
+					definition.side === 'police' && action.type === 'line' ? { line: action.a } : {} );
 
 			} catch ( error ) { this.runtime.fail( error ); }
 			return true;
@@ -182,7 +184,8 @@ export function scenarioMission( value ) {
 
 			if ( action.type === 'pause' ) this.runtime.pause( action.paused );
 			const rawSelection = action.units ?? this.game.selected;
-			const selection = [ ...this.selectionHandles( rawSelection ), ...this.selectionHandles( rawSelection, 'vehicle' ) ];
+			const kind = definition.side === 'protest' ? 'crowd' : 'squad';
+			const selection = [ ...this.selectionHandles( rawSelection, kind ), ...this.selectionHandles( rawSelection, 'vehicle' ) ];
 			const safe: Record<string, any> = { type: action.type, selection: Object.freeze( selection ) };
 			for ( const key of [ 'how', 'key', 'paused', 'speed', 'muted' ] ) if ( action[ key ] !== undefined ) safe[ key ] = action[ key ];
 			for ( const key of [ 'at', 'a' ] ) if ( action[ key ] ) safe[ key === 'a' ? 'line' : key ] = Object.freeze( [ ...action[ key ] ] );
@@ -198,7 +201,9 @@ export function scenarioMission( value ) {
 
 		commands() {
 
-			return [ { key: 'rmb', label: 'Move', hint: 'right-click', needsSel: true },
+			const movement = [ { key: 'rmb', label: 'Move', hint: 'right-click', needsSel: true } ];
+			if ( definition.side === 'protest' ) return movement;
+			return [ ...movement,
 				{ key: 'l', label: 'Cordon line', needsSel: true, run: () => this.game.drawLine() },
 				...this.runtime.commands.list().map( ( command ) => ( { key: command.key, label: command.label,
 					needsSel: command.needsSelection, resource: command.resource, forCars: command.forCars, forCordon: command.id === 'shield-push', aim: command.aim,
@@ -239,6 +244,55 @@ export function scenarioMission( value ) {
 				const danger = [ 'dropped', 'down', 'captured', 'dead' ].includes( entity.state );
 				const label = entity.handle.kind === 'protected-person' ? `${entity.label} · ${entity.state.toUpperCase()}` : entity.label;
 				this.drawZone( overlay, ...( entity.position as [ number, number ] ), 5, danger ? 'rgb(255,45,85)' : 'rgb(255,176,32)', label );
+
+			}
+			this.drawCustody( overlay );
+
+		}
+
+		drawCustody( o ) {
+
+			const jobs = this.runtime.custody.jobs;
+			if ( ! jobs ) return;
+			const ctx = o.ctx, cap = jobs.options.capacity;
+			ctx.font = '600 10px "IBM Plex Mono", monospace';
+			ctx.textAlign = 'center';
+			for ( const v of jobs.dropoffs ) {
+
+				const [ x, y ] = o.toScreen( ...v.at );
+				ctx.fillStyle = v.blocked ? 'rgb(255,45,85)' : 'rgb(43,140,255)';
+				ctx.fillText( v.blocked ? 'VAN · BLOCKADED' : 'PRISONER VAN', x, y - 14 );
+
+			}
+			// detainees held by each squad: small dots round it, and the spot it is working
+			for ( const [ s, j ] of jobs.jobs ) {
+
+				if ( ! s.center ) continue;
+				const [ x, y ] = o.toScreen( ...s.center );
+				let sitters = 0;
+				for ( const [ actor, n ] of j.byActor ) if ( actor !== null && jobs.env.sittingActor( actor ) ) sitters += n;
+				for ( let k = 0; k < j.held; k ++ ) {
+
+					const a = k / cap * Math.PI * 2 + this.runtime.time * 0.5, r = 6 / o.mpp + 4;
+					ctx.fillStyle = k < sitters ? 'rgb(233,228,216)' : 'rgb(255,106,16)';
+					ctx.beginPath(); ctx.arc( x + Math.cos( a ) * r, y + Math.sin( a ) * r, 2.5, 0, Math.PI * 2 ); ctx.fill();
+
+				}
+				if ( j.held || j.state !== 'idle' ) {
+
+					ctx.fillStyle = 'rgb(43,140,255)';
+					ctx.fillText( `${j.held}/${cap}${j.state === 'cart' ? ' → VAN' : j.state === 'unload' ? ( j.van.blocked ? ' VAN BLOCKED' : ' HANDING OVER' ) : ''}`, x, y + 6 / o.mpp + 16 );
+
+				}
+				if ( ( j.state === 'arrest' || j.state === 'approach' ) && j.at ) {
+
+					const [ ax, ay ] = o.toScreen( ...j.at );
+					ctx.strokeStyle = 'rgba(43,140,255,0.7)';
+					ctx.setLineDash( [ 3, 4 ] );
+					ctx.beginPath(); ctx.arc( ax, ay, 12 / o.mpp, 0, Math.PI * 2 ); ctx.stroke();
+					ctx.setLineDash( [] );
+
+				}
 
 			}
 

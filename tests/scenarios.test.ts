@@ -5,10 +5,12 @@ import governmentScenario from '../examples/government-scenario.ts';
 import clashScenario from '../examples/clash-scenario.ts';
 import trainingScenario from '../examples/training-scenario.ts';
 import { ClashMission } from '../src/game/missions/clash.ts';
+import { RallyMission } from '../src/game/missions/rally.ts';
 import { STAT } from '../src/sim/crowd.ts';
 import { advanceClash } from '../src/game/scenarios/clash.ts';
 import { ScenarioEngine } from '../src/game/scenarios/engine.ts';
-import { defineBehavior, defineOutcome, defineScenario, escortConvoy, place, preventClash, survive } from '../src/game/scenarios/definition.ts';
+import { scenarioMission } from '../src/game/scenarios/mission.ts';
+import { defineBehavior, defineOutcome, defineScenario, escortConvoy, holdCrowd, place, preventClash, survive } from '../src/game/scenarios/definition.ts';
 import { ScenarioRuntime } from '../src/game/scenarios/runtime.ts';
 import { followRoute } from '../src/game/scenarios/route.ts';
 
@@ -96,14 +98,91 @@ test( 'definitions detach configuration and reject unsupported or malformed valu
 	assert.deepEqual( definition.goals, [ 'Hold' ] );
 	assert.deepEqual( definition.locations.square, [ 1, 2 ] );
 	assert.throws( () => scenario( { goals: new Array( 1 ) } ), /dense array/ );
-	assert.throws( () => scenario( { side: 'protest' } ), /police/ );
+	assert.equal( scenario( { side: 'protest' } ).side, 'protest' );
 	assert.throws( () => scenario( { unsupported: [] } ), /unsupported field/ );
 	assert.throws( () => survive( { id: 'hold', seconds: NaN } ), /finite/ );
+	assert.throws( () => holdCrowd( { id: 'crowd', at: 'square', radius: 0, minimumPeople: 5, holdSeconds: 3, timeoutSeconds: 10 } ), /radius/ );
+	assert.throws( () => holdCrowd( { id: 'crowd', at: 'square', radius: 20, minimumPeople: 5, holdSeconds: 3, timeoutSeconds: 2 } ), /at least holdSeconds/ );
 	assert.throws( () => scenario( { seed: - 1 } ), /unsigned 32-bit/ );
 	assert.throws( () => scenario( { locations: { square: [ Infinity, 0 ] } } ), /finite/ );
 	const charge = { kind: 'police-command', id: 'charge', resource: null };
 	assert.throws( () => scenario( { commands: [ charge ], initiallyLockedCommands: [ 'gas' ] } ), /declared command IDs/ );
 	assert.throws( () => scenario( { commands: [ charge ], initiallyLockedCommands: [ 'charge', 'charge' ] } ), /IDs must be unique/ );
+	assert.throws( () => scenario( { side: 'protest', commands: [ charge ] } ), /police commands are unavailable/ );
+
+} );
+
+test( 'crowd-hold objective matches Rally cumulative occupancy, pauses below threshold and wins at the hold boundary', async () => {
+
+	const definition = scenario( { objectives: [ holdCrowd( { id: 'square', at: 'square', radius: 60, minimumPeople: 6,
+		holdSeconds: 3, timeoutSeconds: 10 } ) ] } );
+	const { runtime } = fixture( definition );
+	runtime.locations.set( 'square', [ 0, 0 ] );
+	const handle = { id: 'protest', kind: 'crowd', run: runtime.run };
+	runtime.actors.set( handle.id, { handle, backend: [] } );
+	const observation = ( inSquare, total = 12 ) => ( { actors: [ { handle, alive: total, center: [ 0, 0 ] } ], people: Array.from( { length: total }, ( _, index ) => ( {
+		faction: 'protester', status: 'active', agitation: 0, position: index < inSquare ? [ 0, 0 ] : [ 100, 100 ],
+	} ) ) } );
+	runtime.observation = observation( 6 ); runtime.state = 'briefing'; runtime.start();
+	const nativeResult = [];
+	let headcount = 6;
+	const native = { ai: { tick() {} }, goal: 6, holdNeed: 3, held: 0, flags: {}, target: [ 0, 0 ], t: 0,
+		stats: new Uint32Array( 16 ), get headcount() { return headcount; }, event() {}, end: ( win, reason ) => nativeResult.push( { win, reason } ) };
+	native.stats[ STAT.PROT ] = 12;
+	for ( const [ people, dt ] of [ [ 6, 1 ], [ 6, 1 ], [ 4, 2 ], [ 6, 1 ], [ 6, 1 ] ] ) {
+
+		headcount = people; native.t += dt;
+		RallyMission.prototype.tick.call( native, dt );
+		runtime.observation = observation( people ); runtime.update( dt );
+		assert.equal( runtime.heldCrowdSeconds, native.held );
+		if ( nativeResult.length ) break;
+
+	}
+	assert.deepEqual( nativeResult, [ { win: true, reason: 'Trg republike belongs to the people tonight.' } ] );
+	assert.equal( runtime.result.win, true ); assert.equal( runtime.time, 5 );
+	runtime.dispose();
+
+} );
+
+test( 'crowd-hold objective loses on population collapse and times out without awarding an incomplete hold', async () => {
+
+	const objective = holdCrowd( { id: 'square', at: [ 0, 0 ], radius: 60, minimumPeople: 5, holdSeconds: 4, timeoutSeconds: 5,
+		minimumAlive: 5, minimumAliveAfter: 1 } );
+	const { runtime } = fixture( scenario( { objectives: [ objective ] } ) );
+	const handle = { id: 'protest', kind: 'crowd', run: runtime.run };
+	runtime.actors.set( handle.id, { handle, backend: [] } );
+	const observation = ( inSquare, total ) => ( { actors: [ { handle, alive: total, center: [ 0, 0 ] } ],
+		people: Array.from( { length: total }, ( _, index ) => ( { faction: 'protester', status: 'active', agitation: 0,
+			position: index < inSquare ? [ 0, 0 ] : [ 100, 100 ] } ) ) } );
+	runtime.observation = observation( 0, 4 ); runtime.state = 'briefing'; runtime.start();
+	runtime.update( 1 ); assert.equal( runtime.result, null );
+	runtime.update( 0.1 ); assert.equal( runtime.result.win, false );
+	runtime.dispose();
+
+	const timeoutObjective = holdCrowd( { id: 'square', at: [ 0, 0 ], radius: 60, minimumPeople: 5, holdSeconds: 4, timeoutSeconds: 5 } );
+	const timed = fixture( scenario( { objectives: [ timeoutObjective ] } ) ).runtime;
+	const timedHandle = { id: 'protest', kind: 'crowd', run: timed.run };
+	timed.actors.set( timedHandle.id, { handle: timedHandle, backend: [] } );
+	timed.observation = { actors: [ { handle: timedHandle, alive: 5, center: [ 100, 100 ] } ],
+		people: Array.from( { length: 5 }, () => ( { faction: 'protester', status: 'active', agitation: 0, position: [ 100, 100 ] } ) ) };
+	timed.state = 'briefing'; timed.start(); timed.update( 5 ); assert.equal( timed.result, null );
+	timed.update( 0.1 ); assert.equal( timed.result.win, false );
+	timed.dispose();
+
+} );
+
+test( 'protest-side scenarios route selected crowd movement through the SDK without police orders', () => {
+
+	const definition = scenario( { side: 'protest' } ), ScenarioMission = scenarioMission( definition );
+	const group = { id: 7 }, crowd = { id: 'crowd-1', kind: 'crowd', run: 1 }, moves = [], actions = [];
+	const runtime = { state: 'running', actors: new Map( [ [ crowd.id, { handle: crowd, backend: [ group ] } ] ] ),
+		commands: { list: () => [] }, playerMove: ( ...args ) => moves.push( args ), playerAction: ( action ) => actions.push( action ) };
+	const mission = Object.assign( Object.create( ScenarioMission.prototype ), { runtime, game: { selected: [ group ] } } );
+	assert.equal( mission.onPlayerMovement( { type: 'line', units: [ group ], a: [ 0, 0 ], at: [ 10, 20 ] } ), true );
+	assert.deepEqual( moves, [ [ crowd, [ 10, 20 ], {} ] ] );
+	assert.deepEqual( mission.commands().map( ( command ) => command.key ), [ 'rmb' ] );
+	mission.onAction( { type: 'move', units: [ group ], at: [ 10, 20 ] } );
+	assert.deepEqual( actions[ 0 ].selection, [ crowd ] );
 
 } );
 
@@ -1045,5 +1124,18 @@ test( 'scenario opinion policy defaults to the base mission model and maps overr
 	assert.throws( () => scenario( { opinion: { initial: 101 } } ), /opinion\.initial/ );
 	assert.throws( () => scenario( { opinion: { gas: 1 } } ), /opinion\.gas/ );
 	assert.throws( () => scenario( { opinion: { weights: { tension: 1 } } } ), /unsupported field/ );
+
+} );
+
+test( 'scenario HUD rows replace the default objective rows, clamp bars and fail the run on malformed rows', async () => {
+
+	const good = fixture( scenario( { hud: ( { time } ) => [ { label: 'Handed over', value: 1.5, text: `${time}`, state: 'ok' }, { label: 'Tension', value: - 1, text: 'calm', state: 'warn', invert: true } ] } ) );
+	await good.runtime.setup(); good.runtime.observe( {} ); await good.runtime.start(); good.runtime.update( 2 );
+	assert.deepEqual( good.runtime.objectives(), [ { label: 'Handed over', value: 1, text: '2', state: 'ok', invert: false }, { label: 'Tension', value: 0, text: 'calm', state: 'warn', invert: true } ] );
+	const bad = fixture( scenario( { hud: () => [ { label: 'Oops', value: 0.5, text: 'x', state: 'great' } ] } ) );
+	await bad.runtime.setup(); bad.runtime.observe( {} ); await bad.runtime.start();
+	assert.equal( bad.runtime.objectives()[ 0 ].label, 'Hold position' );
+	assert.equal( bad.runtime.state, 'failed' ); assert.match( bad.failures[ 0 ].message, /scenario\.hud: scenario\.hud\.0\.state/ );
+	assert.throws( () => scenario( { hud: 'rows' } ), /scenario\.hud/ );
 
 } );

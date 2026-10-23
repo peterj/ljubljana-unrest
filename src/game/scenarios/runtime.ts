@@ -40,6 +40,7 @@ export class ScenarioRuntime {
 	declare time: number;
 	declare step: number;
 	declare clashPressure: number;
+	declare heldCrowdSeconds: number;
 	declare result: any;
 	declare error: any;
 	declare run: number;
@@ -80,6 +81,7 @@ export class ScenarioRuntime {
 		this.time = 0;
 		this.step = 0;
 		this.clashPressure = 0;
+		this.heldCrowdSeconds = 0;
 		this.result = null;
 		this.error = null;
 		this.run = nextRun ++;
@@ -113,6 +115,7 @@ export class ScenarioRuntime {
 			crowd: Object.freeze( {
 				setMode: ( actor, mode ) => this.setCrowdMode( actor, mode ),
 				nudge: ( actor, options ) => this.nudgeCrowd( actor, options ),
+				setMorale: ( actor, morale ) => this.setCrowdMorale( actor, morale ),
 			} ),
 			commands: this.commands.context(),
 			convoys: this.convoys.context(),
@@ -214,7 +217,7 @@ export class ScenarioRuntime {
 	setCrowdMode( value, mode ) {
 
 		this.writable();
-		check( [ 'hold', 'march', 'riot', 'sit' ].includes( mode ), 'crowd.mode', 'must be hold, march, riot or sit' );
+		check( [ 'hold', 'march', 'riot', 'sit', 'shield', 'push' ].includes( mode ), 'crowd.mode', 'must be hold, march, riot, sit, shield or push' );
 		const actor = this.crowdRecord( value ), result = this.adapter.setCrowdMode( actor.backend, mode );
 		if ( result.status === 'rejected' ) return Object.freeze( result );
 		this.event( 'crowd.mode-changed', { actor: actor.handle, mode } );
@@ -222,15 +225,26 @@ export class ScenarioRuntime {
 
 	}
 
+	setCrowdMorale( value, morale ) {
+
+		this.writable();
+		check( Number.isFinite( morale ) && morale >= 0 && morale <= 1, 'crowd.morale', 'must be between 0 and 1' );
+		const actor = this.crowdRecord( value ), result = this.adapter.setCrowdMorale( actor.backend, morale );
+		return Object.freeze( result.status === 'rejected' ? result : { status: 'completed', value: Object.freeze( { actor: actor.handle, morale } ) } );
+
+	}
+
 	nudgeCrowd( value, options ) {
 
 		this.writable();
-		fields( options, [ 'agitation', 'resolve' ], 'crowd.nudge' );
-		const agitation = options.agitation ?? 0, resolve = options.resolve ?? 0;
+		fields( options, [ 'agitation', 'resolve', 'share', 'leaders' ], 'crowd.nudge' );
+		const agitation = options.agitation ?? 0, resolve = options.resolve ?? 0, share = options.share ?? 1, leaders = options.leaders ?? false;
 		check( Number.isFinite( agitation ) && agitation >= - 1 && agitation <= 1, 'crowd.nudge.agitation', 'must be from -1 to 1' );
 		check( Number.isFinite( resolve ) && resolve >= - 2 && resolve <= 2, 'crowd.nudge.resolve', 'must be from -2 to 2' );
 		check( agitation !== 0 || resolve !== 0, 'crowd.nudge', 'must change agitation or resolve' );
-		const actor = this.crowdRecord( value ), result = this.adapter.nudgeCrowd( actor.backend, { agitation, resolve } );
+		check( Number.isFinite( share ) && share > 0 && share <= 1, 'crowd.nudge.share', 'must be above 0 and at most 1' );
+		check( typeof leaders === 'boolean', 'crowd.nudge.leaders', 'must be a boolean' );
+		const actor = this.crowdRecord( value ), result = this.adapter.nudgeCrowd( actor.backend, { agitation, resolve, share, leaders, random: () => this.random() } );
 		if ( result.status === 'rejected' ) return Object.freeze( result );
 		this.event( 'crowd.nudged', { actor: actor.handle, people: result.people, agitation, resolve } );
 		return Object.freeze( { status: 'completed', value: Object.freeze( { actor: actor.handle, people: result.people } ) } );
@@ -283,6 +297,7 @@ export class ScenarioRuntime {
 					blocked: Object.freeze( target.exits.map( () => false ) ), facade: 0 } );
 
 			}
+			if ( this.definition.objectives[ 0 ].kind === 'hold-crowd' ) this.location( this.definition.objectives[ 0 ].at );
 			if ( this.definition.objectives[ 0 ].kind === 'escort-convoy' ) this.convoys.resolve( this.definition.objectives[ 0 ].convoy );
 			this.behaviors.setup();
 			this.state = 'briefing';
@@ -703,6 +718,23 @@ export class ScenarioRuntime {
 		const outcome = this.evaluateOutcomes();
 		if ( this.state !== 'running' ) return;
 		if ( outcome ) { this.finish( outcome.win, outcome.reason ); return; }
+		if ( objective.kind === 'hold-crowd' ) {
+
+			const people = this.spatial.count( { at: objective.at, radius: objective.radius, faction: 'protester' } );
+			if ( people === null ) {
+
+				if ( this.time > objective.timeoutSeconds ) this.fail( new Error( 'objective.at: complete crowd observation unavailable at deadline' ) );
+				return;
+
+			}
+			if ( people >= objective.minimumPeople ) this.heldCrowdSeconds += dt;
+			if ( this.heldCrowdSeconds + 1e-9 >= objective.holdSeconds ) { this.finish( true, objective.reason ); return; }
+			const alive = this.observation.people.filter( ( person ) => person.faction === 'protester' && [ 'active', 'injured' ].includes( person.status ) ).length;
+			if ( this.time > objective.minimumAliveAfter && alive < objective.minimumAlive ) this.finish( false, objective.populationFailureReason );
+			else if ( this.time > objective.timeoutSeconds ) this.finish( false, objective.timeoutReason );
+			return;
+
+		}
 		if ( objective.kind === 'escort-convoy' ) {
 
 			const convoy = this.convoys.get( objective.convoy );
@@ -802,6 +834,23 @@ export class ScenarioRuntime {
 	objectives() {
 
 		const objective = this.definition.objectives[ 0 ];
+		if ( this.definition.hud && this.state !== 'failed' ) try {
+
+			const rows = this.definition.hud( Object.freeze( { time: this.time, metrics: this.metrics(), objective: objective.kind } ) );
+			check( Array.isArray( rows ) && rows.length >= 1 && rows.length <= 8, 'scenario.hud', 'must return 1 to 8 rows' );
+			return rows.map( ( row, index ) => {
+
+				fields( row, [ 'label', 'value', 'text', 'state', 'invert' ], `scenario.hud.${index}` );
+				check( typeof row.label === 'string' && row.label.trim() !== '' && row.label.length <= 80, `scenario.hud.${index}.label`, 'must be non-empty text of at most 80 characters' );
+				check( typeof row.text === 'string' && row.text.length <= 40, `scenario.hud.${index}.text`, 'must be text of at most 40 characters' );
+				check( Number.isFinite( row.value ), `scenario.hud.${index}.value`, 'must be finite' );
+				check( [ 'ok', 'warn', 'bad', 'done' ].includes( row.state ), `scenario.hud.${index}.state`, 'must be ok, warn, bad or done' );
+				check( row.invert === undefined || typeof row.invert === 'boolean', `scenario.hud.${index}.invert`, 'must be a boolean' );
+				return Object.freeze( { label: row.label, value: Math.max( 0, Math.min( 1, row.value ) ), text: row.text, state: row.state, invert: row.invert ?? false } );
+
+			} );
+
+		} catch ( error ) { this.fail( new Error( `scenario.hud: ${error.message}`, { cause: error } ) ); }
 		if ( objective.kind === 'hold-building' ) {
 
 			const state = this.buildingState ?? { breach: 0, evacuation: 0, facade: 0, blocked: [] };
@@ -811,6 +860,23 @@ export class ScenarioRuntime {
 				{ label: 'Facade breach', value: state.breach, text: `${state.facade} at the doors`, state: state.breach > 0.6 ? 'bad' : state.breach > 0.25 ? 'warn' : 'ok', invert: true },
 				{ label: `Exits clear ${clear}/${state.blocked.length}`, value: state.evacuation, text: state.evacuation > 0 ? `evac ${Math.round( state.evacuation * 100 )}%` : 'open',
 					state: state.evacuation > 0.5 ? 'bad' : clear < state.blocked.length ? 'warn' : 'ok', invert: true },
+				...this.indicatorObjectives(),
+			];
+
+		}
+		if ( objective.kind === 'hold-crowd' ) {
+
+			const people = this.spatial.count( { at: objective.at, radius: objective.radius, faction: 'protester' } );
+			const alive = this.observation?.people.filter( ( person ) => person.faction === 'protester' && [ 'active', 'injured' ].includes( person.status ) ).length ?? 0;
+			return [
+				{ label: objective.label, value: Math.min( 1, this.heldCrowdSeconds / objective.holdSeconds ), text: `${formatTime( objective.holdSeconds - this.heldCrowdSeconds )} held`,
+					state: this.result ? this.result.win ? 'done' : 'bad' : 'ok' },
+				{ label: 'People in the square', value: Math.min( 1, ( people ?? 0 ) / objective.minimumPeople ),
+					text: people === null ? 'Unavailable' : `${people.toLocaleString()} / ${objective.minimumPeople.toLocaleString()}`,
+					state: people === null ? 'warn' : people >= objective.minimumPeople ? 'done' : 'ok' },
+				...( objective.minimumAlive > 0 ? [ { label: 'Protesters on the streets', value: Math.min( 1, alive / objective.minimumAlive ),
+					text: `${alive.toLocaleString()} / ${objective.minimumAlive.toLocaleString()}`,
+					state: alive < objective.minimumAlive ? 'bad' : 'ok' } ] : [] ),
 				...this.indicatorObjectives(),
 			];
 
