@@ -1,96 +1,87 @@
-# Mission Plugins
+# Scenario Plugins (SDK v1)
 
-Mission plugins are ES modules loaded when the game starts. A plugin exports the SDK version it targets and either a mission class or a factory that returns one or more mission classes.
-
-The runnable example is [`examples/hello-mission.js`](../examples/hello-mission.js). It imports no game files; all mission dependencies come from the SDK argument.
+Mission plugins are ES modules that export `sdkVersion = 1` and a factory returning one or more Scenario SDK definitions. Plugins are trusted, unsandboxed JavaScript; only load code from an author you trust.
 
 ## Run Locally
 
-Install dependencies and start the Vite development server:
+Install dependencies and start Vite:
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open the URL printed by Vite with the example plugin and mission id:
+Open the URL printed by Vite with the example plugin and scenario ID:
 
 ```text
-http://localhost:5173/?plugin=/examples/hello-mission.js&m=hello-square
+http://localhost:5173/?plugin=/examples/hello-scenario.js&m=hello-scenario
 ```
 
-The plugin file must be served as a JavaScript ES module. For local development, serving it from the game's origin avoids a remote-plugin confirmation. If it is on another origin, the server must permit cross-origin module requests and the game will ask before loading it.
+The factory receives only the public Scenario SDK builders. It does not receive `Mission`, simulation enums, `World`, raw GPU buffers, or the DOM. Do not import game internals from a plugin.
 
-## Plugin Shape
-
-Use a factory so the class can extend `Mission` from the supplied SDK:
+## Minimal Scenario
 
 ```js
 export const sdkVersion = 1;
 
-export default ({ Mission }) => class MyMission extends Mission {
-    static id = 'my-mission';
-    static title = 'My Mission';
-    static subtitle = 'A short description';
-    static side = 'police';
-    static brief = 'What is happening in this mission.';
-    static goals = [ 'Complete the objective' ];
-    static tips = [ 'A useful player tip' ];
+export default ( { defineScenario, place, survive } ) => defineScenario( {
+    id: 'hello-scenario',
+    title: 'Hello Square',
+    subtitle: 'A short description',
+    brief: 'Keep Trg republike calm for one minute.',
+    goals: [ 'Hold the square for 1:00' ],
+    locations: { square: place( 'Trg republike' ) },
+    setup( ctx ) {
 
-    async setup() {
-        // Create groups, squads, goals, and other mission state.
-    }
+        ctx.presentation.focus( 'square', 0.5 );
+        ctx.spawn.crowd( { id: 'demonstrators', at: 'square', people: 300 } );
+        ctx.spawn.squad( { id: 'squad-east', at: [ - 10, 20 ] } );
 
-    tick() {
-        if ( this.t >= 60 ) this.end( true, 'Objective complete.' );
-    }
-};
+    },
+    objectives: [ survive( { id: 'hold', seconds: 60, label: 'Hold the square' } ) ],
+} );
 ```
 
-The loader also accepts a default-exported subclass that already extends the exact `Mission` constructor used by the game. For standalone plugin files, the factory above is the portable way to receive that constructor. A factory may return one class or an array of classes, and may be async; the loader awaits it and registers the returned missions together.
+See [hello-scenario.js](../examples/hello-scenario.js) for a runnable example. Examples use `menu: false` to stay out of the mission picker while remaining directly loadable by URL.
 
-## Mission Metadata
+## Definitions
 
-Every mission must satisfy these registry rules:
+`defineScenario` validates and freezes plain configuration. Unknown fields, duplicate IDs, malformed values, and missing location references fail registration or setup rather than being ignored.
 
-- `id`: unique lowercase slug matching `[a-z0-9][a-z0-9-]{0,39}`. It becomes the `m` query parameter.
-- `title`, `subtitle`, and `brief`: non-empty strings. The brief is rendered as text; only balanced `<b>` and `<i>` tags are preserved.
-- `side`: either `'police'` or `'protest'`.
-- `goals` and `tips`: arrays of non-empty strings.
-- `city`: optional folder name matching `[a-z0-9_-]+`, corresponding to a folder under `public/data/`.
+Scenario IDs, location aliases, behavior IDs, resource IDs, and command IDs are lowercase slugs. Locations use `place(name)`, `landmark(name)`, `target(name)`, or fixed local-meter coordinates. Named locations are resolved before setup runs.
 
-The mission is selectable with `?plugin=<plugin-url>&m=<id>`. The game loads every `plugin` parameter before looking up the mission. A module, factory, or class that fails validation registers none of its missions; failures appear in the mission menu and do not prevent other plugins from loading.
+The current preview supports police-side scenarios with one primary objective: `survive`, `protect`, `extract`, `holdBuilding`, `preventClash`, or `escortConvoy`. Ordered `defineOutcome` rules can end a scenario before its default objective result. A synchronous `score` policy returns a validated star count and result rows.
 
-## Lifecycle And SDK
+`phase` supplies short synchronous HUD text. `indicators` adds rows driven by supported semantic counters. `initiallyLockedCommands` hides configured orders from the briefing until a behavior unlocks them.
 
-Extend `Mission` and use its lifecycle methods:
+## Runtime Capabilities
 
-- `async setup()` prepares the world and mission state before play begins.
-- `start()` schedules opening events or timers after the player starts the mission.
-- `tick(dt)` updates mission rules. `this.t` is elapsed game time in seconds; call `this.end(win, reason)` to finish.
-- `objectives()`, `phase()`, and `score(win)` provide the HUD and result screen.
-- `commands()` returns the standard orders for the mission side; override it to add or wrap orders.
-- `draw(overlay)` draws mission-specific map overlays.
-- `onAction(action)` (optional) receives what the player does: `pan`, `zoom`, `select`, `deselect`, `move`, `line`, `drive`, `order` (with `key`), `pause`, `speed` and `sound`. The tutorial in [`src/game/missions/tutorial.js`](../src/game/missions/tutorial.js) uses it to wait for each step.
+Setup can spawn crowds, bystanders, squads, and vehicles. Spawn calls return owned operations; inspect `settled` outcomes when later logic depends on allocation. Setup waits for outstanding owned operations before entering the briefing.
 
-The base class also provides helpers such as `event()`, `after()`, `bystanders()`, and `nudgeOpinion()`. The SDK includes `Mission`, simulation enums and helpers, colors, geometry and spawn helpers, `Convoy`, and the `DefendMission` template. See the full list in [`src/game/sdk/index.js`](../src/game/sdk/index.js).
+Attach reusable behaviors with `defineBehavior`. Each attachment gets fresh private state and `start`, `update`, `observe`, `onEvent`, `onAction`, and `stop` hooks. Behaviors can own game-time timers, movement, commands, crowd changes, actors, convoys, and coach cards. Owned work is canceled or cleaned up when the behavior stops.
 
-For a building-defense scenario, extend `DefendMission` instead of implementing waves, exits, and breach logic from scratch. Set the template's `target` and `waves` statics; see the built-in missions in [`src/game/missions/defend.js`](../src/game/missions/defend.js).
+Player actions are semantic events. Selection contains opaque actor handles, movement contains copied coordinates, and vehicle actions contain vehicle handles; raw groups and person indices are not exposed. Use `ctx.commands.lock(id)` and `unlock(id)` for owner-scoped progressive command availability. Locks are released when the owner stops.
 
-Import dependencies only from the supplied SDK object. Importing the game's source files may work in development but is not a supported plugin interface and will fail in production builds.
+The coach capability supports a chapter, instruction text, step and total, an optional HUD spot, and Continue/Skip callbacks. It clears automatically when its behavior stops.
 
-## Remote Code And Trust
+`ctx.convoys.create({ id, vehicles, vipIndex })` creates a kinematic convoy on the selected city's authored route. `ctx.convoys.get(handle)` returns immutable progress, integrity, blockers, attackers, and speed. `ctx.convoys.at(handle, distance)` samples a route point; `ctx.convoys.depart(handle)` starts movement once. The SDK does not expose the internal convoy object, mesh, or GPU statistics.
 
-Plugins are **not sandboxed**. They execute in the game page with the page's JavaScript privileges and can access or change its state, storage, and same-origin resources. Only load code from an author you trust.
+`ctx.metrics` contains immutable semantic counters, including per-step `clashContacts` and integrated pressure for `preventClash`. It does not expose raw stats arrays. Command acceptance is not proof of a physical result such as injury, arrest, arrival, or contact; use observed facts for those outcomes.
 
-Same-origin plugins can load without a confirmation. Cross-origin plugins are disabled in a default production build. They are enabled in development, or in a production build made with:
+## Registration And Trust
+
+A factory may return one definition or an array of definitions. The loader validates the entire package before registering any scenario; duplicate IDs are rejected. The optional `m` query parameter selects a scenario after all `plugin` parameters load.
+
+Same-origin plugins can load without confirmation. Cross-origin plugins are disabled in a default production build. They are enabled in development, or in an explicitly opted-in build:
 
 ```sh
 VITE_REMOTE_PLUGINS=1 npm run build
 ```
 
-When remote plugins are enabled, the game asks before the first load of each exact URL in the tab. Confirmed URLs are remembered in `sessionStorage` for that tab. Remote URLs must use HTTPS, except HTTP URLs on localhost. A production opt-in is not a sandbox or a security boundary.
+When enabled, the game asks before importing a remote URL and remembers a confirmed URL only in the current tab's `sessionStorage`. This is a trust prompt, not a sandbox.
 
-## Maps
+## Current Limits
 
-Set `static city = 'folder-name'` to load map data from `public/data/folder-name/`; omit it to use the default city. The current `Mission` base class and several shared helpers still assume Ljubljana places and landmarks. A different map may therefore require plugin-owned placements and mission logic; setting `city` alone does not make every helper map-independent.
+The Scenario SDK is an experimental preview, not a full replacement for the built-in mission system. Existing missions stay on their original path until each candidate passes its own parity gate. Scenario-specific directors, protest-side systems, custody workflows, overlays, and full score/result compatibility are still under development. Setting `city` alone does not guarantee map independence; shared host helpers and authored routes may still be Ljubljana-specific.
+
+Run `npm test`, `npm run build`, and `tsc --noEmit --strict --lib ES2022,DOM src/game/scenarios/index.d.ts` when changing the SDK. Add source-backed tests for setup, timing, outcomes, scoring, and player workflows, plus a browser smoke when the host/UI path is involved.
