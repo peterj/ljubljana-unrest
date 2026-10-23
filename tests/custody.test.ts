@@ -176,10 +176,11 @@ test( 'custody drop-offs, handle-mapped events and immutable state are exposed t
 	assert.deepEqual( seen[ 2 ].byActor, { sitters: 2 } ); assert.ok( Object.isFrozen( seen[ 2 ].byActor ) );
 
 	jobs.handedOver.set( 'sitters', 3 ); jobs.handedOver.set( null, 1 ); jobs.unescorted.set( 'sitters', 1 );
-	jobs.jobs.set( groups.squad, { state: 'cart', held: 4 } );
+	jobs.jobs.set( groups.squad, { state: 'cart', held: 4, at: [ 5, 6 ] } );
+	jobs.released.set( 'sitters', 2 );
 	const state = runtime.context.custody.state();
-	assert.deepEqual( state, { carried: 4, handedOver: { sitters: 3 }, unescorted: { sitters: 1 },
-		dropoffs: [ { id: 'van', position: [ 80, 0 ], blocked: false } ], squads: [ { squad, state: 'cart', held: 4 } ] } );
+	assert.deepEqual( state, { carried: 4, handedOver: { sitters: 3 }, unescorted: { sitters: 1 }, released: { sitters: 2 },
+		dropoffs: [ { id: 'van', position: [ 80, 0 ], blocked: false } ], squads: [ { squad, state: 'cart', held: 4, at: [ 5, 6 ] } ] } );
 	assert.ok( Object.isFrozen( state ) && Object.isFrozen( state.handedOver ) && Object.isFrozen( state.dropoffs[ 0 ] ) );
 
 } );
@@ -203,5 +204,67 @@ test( 'the engine rejects custody arrests until a drop-off exists', async () => 
 	assert.deepEqual( await engine.prepareCommand( { id: 'arrest', at: [ 0, 0 ] }, [ [ group ] ], new AbortController().signal ), { status: 'rejected', code: 'NO_DROPOFF' } );
 	mission.runtime.custody.dropoffs.set( 'van', { id: 'van', at: [ 80, 0 ], blocked: false } );
 	assert.deepEqual( await engine.prepareCommand( { id: 'arrest', at: [ 0, 0 ] }, [ [ group ] ], new AbortController().signal ), { groups: [ group ], custody: true, applied: false } );
+
+} );
+
+test( 'released detainees leave the squad sitters first and rejoin their own crowd beside it', () => {
+
+	const respawned = [], events = [];
+	let respawnWorks = true;
+	const jobs = new CustodyJobs( { sittingActor: ( id ) => id === 'sitters', respawn: ( ...args ) => { if ( respawnWorks ) respawned.push( args ); return respawnWorks; },
+		emit: ( type, payload ) => events.push( [ type, payload ] ) }, CUSTODY_DEFAULTS, [] );
+	const squad = { center: [ 3, 4 ] };
+	jobs.jobs.set( squad, { state: 'cart', held: 3, at: [ 0, 0 ], byActor: new Map<any, number>( [ [ 'supporters', 1 ], [ 'sitters', 2 ] ] ) } );
+	assert.equal( jobs.release( squad ), 'sitters' );
+	assert.equal( jobs.release( squad ), 'sitters' );
+	assert.equal( jobs.release( squad ), 'supporters' );
+	assert.deepEqual( respawned, [ [ 'sitters', true, [ 3, 4 ] ], [ 'sitters', true, [ 3, 4 ] ], [ 'supporters', false, [ 3, 4 ] ] ] );
+	assert.equal( jobs.release( squad ), null );
+	assert.deepEqual( Object.fromEntries( jobs.released ), { sitters: 2, supporters: 1 } );
+	assert.deepEqual( events.map( ( [ type, payload ] ) => [ type, payload.actor ] ), [ [ 'custody.released', 'sitters' ], [ 'custody.released', 'sitters' ], [ 'custody.released', 'supporters' ] ] );
+	jobs.jobs.get( squad ).held = 1; jobs.jobs.get( squad ).byActor.set( 'sitters', 1 ); respawnWorks = false;
+	assert.equal( jobs.release( squad ), null );
+	assert.equal( jobs.jobs.get( squad ).held, 1 );
+
+} );
+
+test( 'custody.release maps squads to their held detainees and rejects other actors', async () => {
+
+	const { runtime, groups } = custodyRuntime( { setup: ( ctx ) => {
+
+		ctx.custody.addDropoff( { id: 'van', at: [ 80, 0 ] } );
+		ctx.spawn.squad( { id: 'squad', at: 'square' } );
+		ctx.spawn.crowd( { id: 'sitters', at: 'square', people: 1, points: [ [ 0, 0 ] ], mode: 'sit' } );
+
+	} } );
+	await runtime.setup(); runtime.observe( {} ); await runtime.start();
+	const squad = runtime.context.actors.resolve( 'squad' ), sitters = runtime.context.actors.resolve( 'sitters' );
+	assert.deepEqual( runtime.context.custody.release( squad ), { status: 'rejected', code: 'NOTHING_HELD' } );
+	const jobs = runtime.custody.driver();
+	jobs.env.respawn = () => true; jobs.env.sittingActor = ( id ) => id === 'sitters';
+	jobs.jobs.set( groups.squad, { state: 'arrest', held: 1, at: [ 0, 0 ], byActor: new Map( [ [ 'sitters', 1 ] ] ) } );
+	assert.deepEqual( runtime.context.custody.release( squad ), { status: 'completed', value: { squad, actor: sitters } } );
+	assert.throws( () => runtime.context.custody.release( sitters ), /must be an allocated squad actor/ );
+
+} );
+
+test( 'crowd nudges can target leaders or a random share; shield, push and morale reach the groups', () => {
+
+	const nudged = [], patches = [], world = { intel: { faction: () => FACTION.PROTESTER }, setMode: World.prototype.setMode, crowd: null };
+	const crowd = { nudge: ( i, a, r ) => nudged.push( [ i, a, r ] ), setGroup: ( id, patch ) => patches.push( [ id, patch ] ) };
+	world.crowd = crowd;
+	const engine = new ScenarioEngine( { world, crowd } );
+	const group: any = { id: 3, faction: FACTION.PROTESTER, leader: 10, members: [ 10, 11, 12, 13 ] };
+	const coins = [ 0.05, 0.5, 0.09, 0.95 ];
+	assert.deepEqual( engine.nudgeCrowd( [ group ], { agitation: 0.1, resolve: 0.02, share: 0.1, random: () => coins.shift() } ), { status: 'completed', people: 2 } );
+	assert.deepEqual( nudged, [ [ 10, 0.1, 0.02 ], [ 12, 0.1, 0.02 ] ] );
+	nudged.length = 0;
+	assert.deepEqual( engine.nudgeCrowd( [ group ], { agitation: 0.15, resolve: 0.05, leaders: true } ), { status: 'completed', people: 1 } );
+	assert.deepEqual( nudged, [ [ 10, 0.15, 0.05 ] ] );
+	engine.setCrowdMode( [ group ], 'shield' ); assert.equal( group.mode, MODE.SHIELD );
+	engine.setCrowdMode( [ group ], 'push' ); assert.equal( group.mode, MODE.PUSH );
+	assert.deepEqual( engine.setCrowdMorale( [ group ], 0.85 ), { status: 'completed' } );
+	assert.deepEqual( patches.at( - 1 ), [ 3, { morale: 0.85 } ] );
+	assert.deepEqual( engine.setCrowdMorale( [ { ...group, faction: FACTION.POLICE } ], 0.5 ), { status: 'rejected', code: 'FACTION' } );
 
 } );

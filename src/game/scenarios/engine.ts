@@ -11,6 +11,7 @@ export class ScenarioEngine {
 	declare nextReinforcement: number;
 	declare snatchTasks: Map<any, any>;
 	declare sitters: Set<number>;
+	declare sittingActors: Set<string>;
 
 	constructor( mission ) {
 
@@ -19,6 +20,7 @@ export class ScenarioEngine {
 		this.nextReinforcement = 1;
 		this.snatchTasks = new Map<any, any>();
 		this.sitters = new Set();
+		this.sittingActors = new Set();
 
 	}
 
@@ -100,21 +102,39 @@ export class ScenarioEngine {
 	setCrowdMode( groups, mode ) {
 
 		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
-		this.mission.world.setMode( groups, { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT, sit: MODE.SIT }[ mode ] );
+		this.mission.world.setMode( groups, { hold: MODE.HOLD, march: MODE.MARCH, riot: MODE.RIOT, sit: MODE.SIT, shield: MODE.SHIELD, push: MODE.PUSH }[ mode ] );
 		return { status: 'completed' };
 
 	}
 
-	nudgeCrowd( groups, { agitation, resolve } ) {
+	setCrowdMorale( groups, morale ) {
+
+		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
+		for ( const group of groups ) this.mission.crowd.setGroup( group.id, { morale } );
+		return { status: 'completed' };
+
+	}
+
+	nudgeCrowd( groups, { agitation, resolve, share = 1, leaders = false, random = Math.random } ) {
 
 		const { world, crowd } = this.mission;
 		if ( ! world.intel ) return { status: 'rejected', code: 'OBSERVATION_UNAVAILABLE' };
 		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
 		let people = 0;
-		for ( const group of groups ) for ( const member of group.members ) if ( world.intel.faction( member ) === group.faction ) {
+		for ( const group of groups ) {
 
-			crowd.nudge( member, agitation, resolve );
-			people ++;
+			if ( leaders ) {
+
+				if ( group.leader >= 0 ) { crowd.nudge( group.leader, agitation, resolve ); people ++; }
+				continue;
+
+			}
+			for ( const member of group.members ) if ( world.intel.faction( member ) === group.faction && ( share >= 1 || random() < share ) ) {
+
+				crowd.nudge( member, agitation, resolve );
+				people ++;
+
+			}
 
 		}
 		return { status: 'completed', people };
@@ -165,7 +185,12 @@ export class ScenarioEngine {
 						mode, agitation: options.agitation, resolve: options.resolve,
 						morale: options.morale, bikes: options.bikes, random, faction } );
 			signal.throwIfAborted();
-			if ( options.mode === 'sit' ) for ( const group of groups ) for ( const member of group.members ) this.sitters.add( member );
+			if ( options.mode === 'sit' ) {
+
+				this.sittingActors.add( options.id );
+				for ( const group of groups ) for ( const member of group.members ) this.sitters.add( member );
+
+			}
 			return groups;
 
 		} catch ( error ) {
@@ -510,6 +535,19 @@ export class ScenarioEngine {
 			setGroup: ( id, patch ) => crowd.setGroup( id, patch ),
 			countNear: ( x, y, radius ) => world.countNear( x, y, radius, FACTION.PROTESTER ),
 			sitter: ( index ) => this.sitters.has( index ),
+			sittingActor: ( id ) => this.sittingActors.has( id ),
+			respawn: ( id, sitter, at ) => {
+
+				const group = runtime.actors.get( id )?.backend?.[ 0 ], random = () => runtime.random();
+				if ( ! group ) return false;
+				const [ agent ] = crowd.spawn( [ { x: at[ 0 ] + rand( - 2, 2, random ), y: at[ 1 ] + rand( - 2, 2, random ), faction: group.faction, group: group.id,
+					role: sitter ? ROLE.SITTER : ROLE.MEMBER, agitation: 0.4, resolve: 1 } ] );
+				if ( agent?.index === undefined ) return false;
+				group.members.push( agent.index );
+				if ( sitter ) this.sitters.add( agent.index );
+				return true;
+
+			},
 			actorOf: ( index ) => {
 
 				const group = world.groups[ world.intel.group( index ) ];

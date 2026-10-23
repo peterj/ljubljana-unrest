@@ -88,8 +88,11 @@ export interface SpatialContext {
 }
 
 /** Synchronous civilian crowd mutation; implementation details remain inside the host adapter. */
+/** Civilian crowd behaviour: shield is a march behind locked arms, push leans on police lines. */
+export type CrowdMode = 'hold' | 'march' | 'riot' | 'sit' | 'shield' | 'push';
+
 export type CrowdMutationResult =
-    | { readonly status: 'completed'; readonly value: { readonly actor: ActorHandle; readonly mode?: 'hold' | 'march' | 'riot' | 'sit'; readonly people?: number } }
+    | { readonly status: 'completed'; readonly value: { readonly actor: ActorHandle; readonly mode?: CrowdMode; readonly people?: number; readonly morale?: number } }
     | { readonly status: 'rejected'; readonly code: 'FACTION' | 'OBSERVATION_UNAVAILABLE' };
 
 /** Finite inventory with game-time cooldown; standard commands currently cost one unit. */
@@ -183,6 +186,19 @@ export interface ScenarioPhaseContext {
 
 /** A concise host-rendered phase string. */
 export type ScenarioPhasePolicy = (context: ScenarioPhaseContext) => string;
+
+/** One HUD objective row; `value` is the bar fill from 0 to 1, `invert` marks bars where full is bad. */
+export interface HudRow {
+    readonly label: string;
+    readonly value: number;
+    /** At most 40 characters. */
+    readonly text: string;
+    readonly state: 'ok' | 'warn' | 'bad' | 'done';
+    readonly invert?: boolean;
+}
+
+/** Synchronous replacement for the default objective rows; 1 to 8 rows. */
+export type ScenarioHudPolicy = (context: ScenarioPhaseContext) => readonly HudRow[];
 
 /** Additional metric threshold shown as a HUD objective row. */
 export interface MetricIndicator {
@@ -287,8 +303,11 @@ export interface CustodyObservation {
     readonly handedOver: Readonly<Record<string, number>>;
     /** Arrests with no police squad within 12 m (snatch, crowd crush), counted as processed directly. */
     readonly unescorted: Readonly<Record<string, number>>;
+    /** People pulled free by `release`, by the crowd actor they rejoined. */
+    readonly released: Readonly<Record<string, number>>;
     readonly dropoffs: readonly { readonly id: string; readonly position: Point; readonly blocked: boolean }[];
-    readonly squads: readonly { readonly squad: ActorHandle; readonly state: 'approach' | 'arrest' | 'process' | 'cart' | 'unload' | 'idle'; readonly held: number }[];
+    /** `at` is the arrest spot the squad was last sent to. */
+    readonly squads: readonly { readonly squad: ActorHandle; readonly state: 'approach' | 'arrest' | 'process' | 'cart' | 'unload' | 'idle'; readonly held: number; readonly at: Point | null }[];
 }
 
 /** Available when the scenario enables `policeCommands({ custody })`. */
@@ -296,11 +315,13 @@ export interface CustodyContext {
     /** Register a drop-off; arrests are rejected with NO_DROPOFF until at least one exists. */
     addDropoff(options: { id: string; at: string | Point }): DropoffHandle;
     state(): CustodyObservation;
+    /** The crowd pulls one detainee free from the squad (a sitter first); they rejoin their crowd beside it. */
+    release(squad: ActorHandle): { readonly status: 'completed'; readonly value: { readonly squad: ActorHandle; readonly actor: ActorHandle } } | { readonly status: 'rejected'; readonly code: 'NOTHING_HELD' };
 }
 
 /** Custody facts discovered from sampled observations. */
 export interface CustodyEvent {
-    readonly type: 'custody.detained' | 'custody.handed-over' | 'custody.idle' | 'custody.blockaded' | 'custody.cleared';
+    readonly type: 'custody.detained' | 'custody.handed-over' | 'custody.idle' | 'custody.blockaded' | 'custody.cleared' | 'custody.released';
     readonly sequence: number;
     readonly time: number;
     /** Escorting squad; null for an unescorted detention. */
@@ -1023,9 +1044,11 @@ export interface ScenarioContext {
     /** Opaque actor-level crowd modes and bounded agitation/resolve effects; no raw member indices. */
     readonly crowd: {
         /** Change a civilian crowd actor's semantic mode. */
-        setMode(actor: ActorHandle | string, mode: 'hold' | 'march' | 'riot' | 'sit'): CrowdMutationResult;
-        /** Add bounded agitation/resolve deltas to active observed civilians in the actor. */
-        nudge(actor: ActorHandle | string, options: { agitation?: number; resolve?: number }): CrowdMutationResult;
+        setMode(actor: ActorHandle | string, mode: CrowdMode): CrowdMutationResult;
+        /** Add bounded agitation/resolve deltas to active observed civilians in the actor; `share` picks a random fraction of them, `leaders` only the group leaders. */
+        nudge(actor: ActorHandle | string, options: { agitation?: number; resolve?: number; share?: number; leaders?: boolean }): CrowdMutationResult;
+        /** Set how firmly the actor's groups hold together, from 0 to 1. */
+        setMorale(actor: ActorHandle | string, morale: number): CrowdMutationResult;
     };
     /** Enabled command catalog and owner-scoped execution. */
     readonly commands: CommandContext;
@@ -1208,7 +1231,7 @@ export interface CrowdEvent {
     /** Affected crowd actor. */
     readonly actor: ActorHandle;
     /** Present for mode changes. */
-    readonly mode?: 'hold' | 'march' | 'riot' | 'sit';
+    readonly mode?: CrowdMode;
     /** Number of active observed people affected by a nudge. */
     readonly people?: number;
     /** Applied agitation/resolve deltas for nudge events. */
@@ -1530,6 +1553,8 @@ export interface ScenarioOptions {
     indicators?: readonly MetricIndicator[];
     /** Optional synchronous phase countdown/status policy. */
     phase?: ScenarioPhasePolicy;
+    /** Optional HUD objective rows replacing the objective's default rows and indicators. */
+    hud?: ScenarioHudPolicy;
     /** Show this scenario in the mission picker; default true. Direct ?m= URLs still work when false. */
     menu?: boolean;
     /** Optional owned gameplay random seed from zero through 2^32-1. */
@@ -1581,6 +1606,7 @@ export interface ScenarioDefinition {
     readonly indicators: readonly MetricIndicator[];
     /** Phase text policy or null for the default duration countdown. */
     readonly phase: ScenarioPhasePolicy | null;
+    readonly hud: ScenarioHudPolicy | null;
     /** Whether this scenario appears in the player-facing picker. */
     readonly menu: boolean;
     /** Explicit 32-bit random seed, or null when the runtime creates one. */

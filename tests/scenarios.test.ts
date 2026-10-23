@@ -1047,3 +1047,16 @@ test( 'scenario opinion policy defaults to the base mission model and maps overr
 	assert.throws( () => scenario( { opinion: { weights: { tension: 1 } } } ), /unsupported field/ );
 
 } );
+
+test( 'scenario HUD rows replace the default objective rows, clamp bars and fail the run on malformed rows', async () => {
+
+	const good = fixture( scenario( { hud: ( { time } ) => [ { label: 'Handed over', value: 1.5, text: `${time}`, state: 'ok' }, { label: 'Tension', value: - 1, text: 'calm', state: 'warn', invert: true } ] } ) );
+	await good.runtime.setup(); good.runtime.observe( {} ); await good.runtime.start(); good.runtime.update( 2 );
+	assert.deepEqual( good.runtime.objectives(), [ { label: 'Handed over', value: 1, text: '2', state: 'ok', invert: false }, { label: 'Tension', value: 0, text: 'calm', state: 'warn', invert: true } ] );
+	const bad = fixture( scenario( { hud: () => [ { label: 'Oops', value: 0.5, text: 'x', state: 'great' } ] } ) );
+	await bad.runtime.setup(); bad.runtime.observe( {} ); await bad.runtime.start();
+	assert.equal( bad.runtime.objectives()[ 0 ].label, 'Hold position' );
+	assert.equal( bad.runtime.state, 'failed' ); assert.match( bad.failures[ 0 ].message, /scenario\.hud: scenario\.hud\.0\.state/ );
+	assert.throws( () => scenario( { hud: 'rows' } ), /scenario\.hud/ );
+
+} );

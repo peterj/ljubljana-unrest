@@ -212,7 +212,7 @@ function opinionPolicy( value = {} ) {
 
 export function defineScenario( options ) {
 
-	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'map', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion' ], 'scenario' );
+	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'map', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion', 'hud' ], 'scenario' );
 	check( typeof options.id === 'string' && ID.test( options.id ), 'scenario.id', 'must be a lowercase slug' );
 	for ( const key of [ 'title', 'subtitle', 'brief' ] ) check( text( options[ key ] ), `scenario.${key}`, 'must be a non-empty string' );
 	check( options.side === undefined || options.side === 'police', 'scenario.side', 'this SDK preview supports police scenarios only' );
@@ -224,6 +224,7 @@ export function defineScenario( options ) {
 	check( options.menu === undefined || typeof options.menu === 'boolean', 'scenario.menu', 'must be a boolean' );
 	check( options.seed == null || ( Number.isInteger( options.seed ) && options.seed >= 0 && options.seed <= 0xffffffff ), 'scenario.seed', 'must be an unsigned 32-bit integer' );
 	check( options.phase == null || typeof options.phase === 'function', 'scenario.phase', 'must be a synchronous phase-text function' );
+	check( options.hud == null || typeof options.hud === 'function', 'scenario.hud', 'must be a synchronous HUD-rows function' );
 	const locations = Object.create( null );
 	fields( options.locations ?? {}, Object.keys( options.locations ?? {} ), 'scenario.locations' );
 	for ( const [ id, reference ] of Object.entries( options.locations ?? {} ) ) {
@@ -259,7 +260,7 @@ export function defineScenario( options ) {
 		subtitle: options.subtitle, brief: options.brief, side: 'police', city: options.city ?? null, map: options.map ?? null,
 		goals: Object.freeze( [ ...( options.goals ?? [] ) ] ), tips: Object.freeze( [ ...( options.tips ?? [] ) ] ), menu: options.menu ?? true,
 		locations: Object.freeze( locations ), setup: options.setup, score: options.score ?? null, seed: options.seed ?? null,
-		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null, opinion: opinionPolicy( options.opinion ),
+		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null, hud: options.hud ?? null, opinion: opinionPolicy( options.opinion ),
 		initiallyLockedCommands: Object.freeze( [ ...initiallyLockedCommands ] ), resources, commands,
 		objectives: Object.freeze( [ kind === 'hold-building' ? holdBuilding( objective ) : kind === 'escort-convoy' ? escortConvoy( objective ) : kind === 'prevent-clash' ? preventClash( objective )
 			: kind === 'extract' ? extract( objective ) : kind === 'protect' ? protect( objective ) : survive( objective ) ] ) } );

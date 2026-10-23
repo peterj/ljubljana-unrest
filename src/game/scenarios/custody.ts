@@ -23,7 +23,7 @@ export function custodyOptions( value ) {
 const near = ( a, b, r ) => ( a[ 0 ] - b[ 0 ] ) ** 2 + ( a[ 1 ] - b[ 1 ] ) ** 2 < r * r;
 const bump = ( map, key, n = 1 ) => map.set( key, ( map.get( key ) ?? 0 ) + n );
 
-// env: time, intel, count, capacity, police, moveSquads, arrest, setGroup, countNear, sitter, actorOf, emit, fail
+// env: time, intel, count, capacity, police, moveSquads, arrest, setGroup, countNear, sitter, sittingActor, actorOf, respawn, emit, fail
 export class CustodyJobs {
 
 	declare env: any;
@@ -33,6 +33,7 @@ export class CustodyJobs {
 	declare prevFac: Float32Array | null;
 	declare handedOver: Map<string | null, number>;
 	declare unescorted: Map<string | null, number>;
+	declare released: Map<string | null, number>;
 
 	constructor( env, options, dropoffs = [] ) {
 
@@ -43,6 +44,7 @@ export class CustodyJobs {
 		this.prevFac = null;
 		this.handedOver = new Map();
 		this.unescorted = new Map();
+		this.released = new Map();
 
 	}
 
@@ -216,6 +218,24 @@ export class CustodyJobs {
 
 	}
 
+	// the crowd pulls one detainee free: a sitter while the squad holds any, back into the crowd they were taken from
+	release( s ) {
+
+		const j = this.jobs.get( s );
+		if ( ! j?.held ) return null;
+		const held = [ ...j.byActor ].filter( ( [ actor, n ] ) => actor !== null && n > 0 );
+		const [ actor ] = held.find( ( [ id ] ) => this.env.sittingActor( id ) ) ?? held[ 0 ] ?? [ null ];
+		if ( actor === null ) return null;
+		const at = s.center ?? j.at;
+		if ( ! this.env.respawn( actor, this.env.sittingActor( actor ), at ) ) return null;
+		j.held --;
+		j.byActor.set( actor, j.byActor.get( actor ) - 1 );
+		bump( this.released, actor );
+		this.env.emit( 'custody.released', { squad: s, actor, position: at } );
+		return actor;
+
+	}
+
 	handOver( s ) {
 
 		const j = this.jobs.get( s );
@@ -295,6 +315,19 @@ export class CustodyHost {
 
 	start( groups, at ) { this.driver().start( groups, at ); }
 
+	release( squad ) {
+
+		this.runtime.writable();
+		check( this.options, 'custody.release', 'requires policeCommands({ custody })' );
+		const record = this.runtime.actors.get( squad?.id );
+		check( record?.handle === squad && squad.kind === 'squad' && Array.isArray( record.backend ), 'custody.release.squad', 'must be an allocated squad actor' );
+		const group = this.jobs && record.backend.find( ( entry ) => this.jobs.jobs.get( entry )?.held > 0 );
+		const actor = group ? this.jobs.release( group ) : null;
+		if ( actor === null ) return Object.freeze( { status: 'rejected', code: 'NOTHING_HELD' } );
+		return Object.freeze( { status: 'completed', value: Object.freeze( { squad, actor: this.runtime.actors.get( actor ).handle } ) } );
+
+	}
+
 	update() {
 
 		if ( ! this.jobs ) return;
@@ -309,11 +342,13 @@ export class CustodyHost {
 
 		const jobs = this.jobs, record = ( map ) => Object.freeze( Object.fromEntries( [ ...( map ?? [] ) ].filter( ( [ id ] ) => id !== null ) ) );
 		const squads = jobs ? [ ...jobs.jobs ].map( ( [ group, job ] ) => ( { squad: [ ...this.runtime.actors.values() ]
-			.find( ( value ) => Array.isArray( value.backend ) && value.backend.includes( group ) )?.handle, state: job.state, held: job.held } ) ).filter( ( entry ) => entry.squad ) : [];
+			.find( ( value ) => Array.isArray( value.backend ) && value.backend.includes( group ) )?.handle, state: job.state, held: job.held,
+			at: job.at ? point( job.at, 'custody.at' ) : null } ) ).filter( ( entry ) => entry.squad ) : [];
 		return Object.freeze( {
 			carried: jobs?.carried ?? 0,
 			handedOver: record( jobs?.handedOver ),
 			unescorted: record( jobs?.unescorted ),
+			released: record( jobs?.released ),
 			dropoffs: Object.freeze( [ ...this.dropoffs.values() ].map( ( v ) => Object.freeze( { id: v.id, position: point( v.at, 'custody.dropoff' ), blocked: v.blocked } ) ) ),
 			squads: Object.freeze( squads.map( ( entry ) => Object.freeze( entry ) ) ),
 		} );
@@ -322,7 +357,7 @@ export class CustodyHost {
 
 	context() {
 
-		return Object.freeze( { addDropoff: ( options ) => this.addDropoff( options ), state: () => this.state() } );
+		return Object.freeze( { addDropoff: ( options ) => this.addDropoff( options ), state: () => this.state(), release: ( squad ) => this.release( squad ) } );
 
 	}
 
