@@ -628,7 +628,13 @@ class Game {
 						for ( const g of sel ) g.snatch = null;
 						this.emit( right.moved ? 'line' : 'move', { a: right.a, at: [ w.x, w.y ], how: right.how, units: sel } );
 
-					} else { m.recall?.( sel ); this.world.march( sel, w.x, w.y, 15 ); }
+					} else {
+
+						const handled = m.onPlayerMovement?.( { type: 'move', units: sel, at: [ w.x, w.y ] } );
+						if ( ! handled ) { m.recall?.( sel ); this.world.march( sel, w.x, w.y, 15 ); }
+						this.emit( 'move', { at: [ w.x, w.y ], how: right.how, units: sel } );
+
+					}
 					this.overlay.ping( w.x, w.y, 'info' );
 
 				}

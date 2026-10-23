@@ -499,7 +499,34 @@ export interface ProtectObjective extends Readonly<ProtectOptions> {
 }
 
 /** Objective kinds currently implemented by the preview. */
-export type Objective = SurviveObjective | PreventClashObjective | EscortConvoyObjective | ProtectObjective | ExtractionObjective | HoldBuildingObjective;
+export type Objective = SurviveObjective | PreventClashObjective | EscortConvoyObjective | ProtectObjective | ExtractionObjective | HoldBuildingObjective | HoldCrowdObjective;
+
+/** Configuration for a timed population-occupancy objective. */
+export interface HoldCrowdOptions {
+    id: string;
+    /** Declared place alias or local map coordinates. */
+    at: string | Point;
+    /** Radius around the location, in meters. */
+    radius: number;
+    /** Active protesters required inside the radius. */
+    minimumPeople: number;
+    /** Cumulative time the population threshold must be met. */
+    holdSeconds: number;
+    /** Scenario time after which failure is recorded if the hold is incomplete. */
+    timeoutSeconds: number;
+    /** Active or injured protesters required after `minimumAliveAfter`; defaults to no population-loss condition. */
+    minimumAlive?: number;
+    minimumAliveAfter?: number;
+    label?: string;
+    reason?: string;
+    populationFailureReason?: string;
+    timeoutReason?: string;
+}
+
+/** Win after a cumulative crowd hold; optionally lose on population loss or timeout. */
+export interface HoldCrowdObjective extends Readonly<HoldCrowdOptions> {
+    readonly kind: 'hold-crowd';
+}
 
 /** Existing defense pressure/evacuation formulas, separate from waves, commands and scoring policies. */
 export interface HoldBuildingOptions extends Omit<SurviveOptions, 'seconds'> {
@@ -1569,8 +1596,8 @@ export interface ScenarioOptions {
     subtitle: string;
     /** Briefing text; the host escapes text and preserves only supported limited markup. */
     brief: string;
-    /** Controlled side; only police scenarios are implemented in this preview. */
-    side?: 'police';
+    /** Controlled side; protest scenarios expose crowd movement and no standard police orders. Defaults to police. */
+    side?: 'police' | 'protest';
     /** City id such as 'belgrade'; null or omission selects Ljubljana. Without `map`, a name that is not a city id
      *  selects a Ljubljana map folder (the older form, e.g. 'north'). */
     city?: string | null;
@@ -1586,7 +1613,7 @@ export interface ScenarioOptions {
     setup?(ctx: ScenarioContext): unknown | Promise<unknown>;
     /** Validated attachments; each gets fresh hooks and private state when the run is set up. */
     behaviors?: readonly BehaviorAttachment[];
-    /** Exactly one survival, protection, extraction, or building-defense objective is currently supported. */
+    /** Exactly one supported survival, protection, extraction, defense, or crowd-hold objective. */
     objectives: readonly [Objective];
 }
 
@@ -1625,8 +1652,8 @@ export interface ScenarioDefinition {
     readonly subtitle: string;
     /** Briefing text, rendered by the host's limited rich-text policy. */
     readonly brief: string;
-    /** Normalized supported side, defaulting to police. */
-    readonly side: 'police';
+    /** Normalized controlled side, defaulting to police. */
+    readonly side: 'police' | 'protest';
     /** Selected city id, normalized to null for Ljubljana. */
     readonly city: string | null;
     /** Selected map of the city, normalized to null for 'centre'. */
@@ -1653,6 +1680,8 @@ export function landmark(name: string): LandmarkReference;
 export function target(name: string): TargetReference;
 /** Hold a building using the existing breach/exit formulas, loss-first precedence and default HUD. */
 export function holdBuilding(options: HoldBuildingOptions): HoldBuildingObjective;
+/** Win after a cumulative sampled crowd hold, with optional population and timeout losses. */
+export function holdCrowd(options: HoldCrowdOptions): HoldCrowdObjective;
 /** Define one ordered, synchronous terminal-outcome rule. */
 export function defineOutcome(rule: Omit<OutcomeRule, 'kind'>): OutcomeRule;
 /** Create a validated timed objective whose progress drives the default HUD and winning result. */

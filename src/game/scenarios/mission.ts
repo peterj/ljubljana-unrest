@@ -95,7 +95,9 @@ export function scenarioMission( value ) {
 			if ( ! [ 'running', 'paused' ].includes( this.runtime.state ) ) return true;
 			try {
 
-				for ( const handle of this.selectionHandles( action.units ) ) this.runtime.playerMove( handle, action.at, action.type === 'line' ? { line: action.a } : {} );
+				const kind = definition.side === 'protest' ? 'crowd' : 'squad';
+				for ( const handle of this.selectionHandles( action.units, kind ) ) this.runtime.playerMove( handle, action.at,
+					definition.side === 'police' && action.type === 'line' ? { line: action.a } : {} );
 
 			} catch ( error ) { this.runtime.fail( error ); }
 			return true;
@@ -182,7 +184,8 @@ export function scenarioMission( value ) {
 
 			if ( action.type === 'pause' ) this.runtime.pause( action.paused );
 			const rawSelection = action.units ?? this.game.selected;
-			const selection = [ ...this.selectionHandles( rawSelection ), ...this.selectionHandles( rawSelection, 'vehicle' ) ];
+			const kind = definition.side === 'protest' ? 'crowd' : 'squad';
+			const selection = [ ...this.selectionHandles( rawSelection, kind ), ...this.selectionHandles( rawSelection, 'vehicle' ) ];
 			const safe: Record<string, any> = { type: action.type, selection: Object.freeze( selection ) };
 			for ( const key of [ 'how', 'key', 'paused', 'speed', 'muted' ] ) if ( action[ key ] !== undefined ) safe[ key ] = action[ key ];
 			for ( const key of [ 'at', 'a' ] ) if ( action[ key ] ) safe[ key === 'a' ? 'line' : key ] = Object.freeze( [ ...action[ key ] ] );
@@ -198,7 +201,9 @@ export function scenarioMission( value ) {
 
 		commands() {
 
-			return [ { key: 'rmb', label: 'Move', hint: 'right-click', needsSel: true },
+			const movement = [ { key: 'rmb', label: 'Move', hint: 'right-click', needsSel: true } ];
+			if ( definition.side === 'protest' ) return movement;
+			return [ ...movement,
 				{ key: 'l', label: 'Cordon line', needsSel: true, run: () => this.game.drawLine() },
 				...this.runtime.commands.list().map( ( command ) => ( { key: command.key, label: command.label,
 					needsSel: command.needsSelection, resource: command.resource, forCars: command.forCars, forCordon: command.id === 'shield-push', aim: command.aim,
