@@ -12,6 +12,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
+    "editor": "vite --open /tools/editor/",
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc -p . && tsc -p tsconfig.sdk.json",
     "build": "npm run typecheck && vite build",
@@ -21,8 +22,10 @@
     "test:map": "uv run --project tools/mapbuild python -m unittest discover -s tools/mapbuild/tests"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.20",
     "@types/node": "^24.19.2",
     "@types/three": "^0.186.0",
+    "leaflet": "^1.9.4",
     "typescript": "^7.0.2"
   }
 }

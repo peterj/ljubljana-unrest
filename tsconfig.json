@@ -13,5 +13,5 @@
 		"skipLibCheck": true,
 		"strict": false
 	},
-	"include": [ "src", "examples", "tests", "vite.config.ts" ]
+	"include": [ "src", "examples", "tests", "tools/editor", "vite.config.ts" ]
 }

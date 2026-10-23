@@ -36,8 +36,8 @@ Set `SITE_URL=https://example.com/path/` when building to make the share-card ta
 The map data in `public/data/` is pre-built and included. `npm run build:city` regenerates the Ljubljana
 maps from a PostGIS database (see `tools/build_city.py`; the connection comes from `BLOKI_DSN` or the
 standard `PG*` environment variables). Maps of other cities are built from OpenStreetMap extracts with
-`npm run build:map -- <city>/<area>`, which needs only [uv](https://docs.astral.sh/uv/); see
-[`maps/README.md`](maps/README.md).
+`npm run build:map -- <city>/<area>`, which needs only [uv](https://docs.astral.sh/uv/), and placed and
+edited in the map editor (`npm run editor`); see [`maps/README.md`](maps/README.md).
 
 ## Built with
 

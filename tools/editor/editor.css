@@ -1,0 +1,76 @@
+:root {
+	--bg: #05070b;
+	--panel: #090c12;
+	--field: #121722;
+	--line: #232a36;
+	--text: #d9d4c8;
+	--dim: #7c8290;
+	--orange: #ff6a10;
+	--amber: #ffb020;
+	--red: #ff2d55;
+	--green: #4fd18b;
+	font-family: 'IBM Plex Mono', ui-monospace, monospace;
+	font-size: 12px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); }
+body { display: grid; grid-template-columns: 1fr 360px; }
+#map { height: 100%; background: var(--bg); }
+#map.dim .leaflet-tile-pane { filter: grayscale(0.8) brightness(0.5) contrast(1.15); }
+#map.pick { cursor: crosshair; }
+.leaflet-raster-pane img { image-rendering: pixelated; }
+#map.pick .leaflet-interactive { cursor: crosshair; }
+
+#panel { height: 100%; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 0 14px 14px; }
+#panel header { position: sticky; top: 0; background: var(--panel); padding: 12px 0 10px; border-bottom: 1px solid var(--line); z-index: 1; }
+#panel header b { letter-spacing: 0.14em; color: #e9e4d8; }
+#panel header span { color: var(--dim); margin-left: 8px; }
+#panel section { padding: 10px 0; border-bottom: 1px solid var(--line); }
+#panel h2 { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; font-weight: 500; }
+#panel h2 small { letter-spacing: 0; text-transform: none; margin-left: 6px; }
+.row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.row > label { color: var(--dim); min-width: 88px; }
+.row > .grow, .row > input.grow { flex: 1; min-width: 0; }
+.hint { color: var(--dim); line-height: 1.45; margin: 4px 0; }
+.warn { color: var(--amber); }
+.bad { color: var(--red); }
+.ok { color: var(--green); }
+.empty { color: #4d5462; }
+a { color: #9fb0c4; }
+
+input, select, button { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); padding: 3px 6px; border-radius: 0; }
+input:focus, select:focus { outline: none; border-color: var(--orange); }
+input[type=number] { width: 72px; }
+input[type=checkbox] { accent-color: var(--orange); }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--orange); color: #fff; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.on { border-color: var(--orange); color: var(--orange); }
+button.x { padding: 1px 6px; color: var(--dim); }
+button.primary { border-color: var(--orange); }
+.tools { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+#center { white-space: nowrap; font-size: 11px; }
+.osm { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+
+#log { margin: 8px 0 0; max-height: 220px; overflow: auto; background: #020305; border: 1px solid var(--line); padding: 6px;
+	font-size: 11px; line-height: 1.35; white-space: pre-wrap; color: #a9a395; }
+#log:empty { display: none; }
+
+/* map handles and labels */
+.handle { width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--orange); background: var(--bg); }
+.handle.center { border-radius: 50%; }
+.handle.corner { cursor: nwse-resize; }
+.tag { white-space: nowrap; transform: translate(-50%, -50%); display: inline-block; padding: 1px 5px; font: 600 11px 'IBM Plex Mono', monospace;
+	letter-spacing: 0.04em; background: rgba(5, 7, 11, 0.85); border: 1px solid #a9a395; color: #e9e4d8; }
+.tag.end { border-color: var(--green); color: var(--green); border-radius: 50%; padding: 1px 6px; }
+.leaflet-div-icon { background: none; border: none; }
+
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 0; box-shadow: none; }
+.leaflet-popup-content { font: 12px 'IBM Plex Mono', monospace; margin: 10px 12px; min-width: 220px; }
+.leaflet-popup-content b { color: #e9e4d8; }
+.leaflet-container a.leaflet-popup-close-button { color: var(--dim); }
+.leaflet-control-attribution { background: rgba(5, 7, 11, 0.7) !important; color: var(--dim); }
+.leaflet-control-attribution a { color: #9fb0c4; }
+.leaflet-bar a { background: var(--panel); color: var(--text); border-color: var(--line); }

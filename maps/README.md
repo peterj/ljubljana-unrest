@@ -5,6 +5,18 @@ OpenStreetMap into `public/data/<city>/<area>/` (`city.json`, `sdf.bin`, `cost.b
 `src/city.ts` loads). The Ljubljana maps are not built this way: they come from a PostGIS database through
 `tools/build_city.py` (`npm run build:city`).
 
+## Editor
+
+`npm run editor` opens the map editor (`tools/editor/`, on the Vite dev server only):
+
+- **New** places a 3.2 × 2.9 km play area at the centre of the view. Drag its orange handles to move it or to
+  resize it about its centre, or press **⌖ Set** next to the centre and click the map to move it there.
+- **Add place** and **Route start / end** set places and the convoy route by clicking the map.
+- After a build, clicking a building makes it a **target** or a **landmark**. The pins are the landmarks found by
+  tags (filled) and the suggestions the build left out (hollow): click one to drop, rename or add it.
+- **Save** writes the settings file, **Build** runs the build and streams its log, **Raster** overlays the
+  walking cost, distance and CCTV grids the game will use.
+
 ## Requirements
 
 [uv](https://docs.astral.sh/uv/) installs Python and the dependencies (pyosmium, shapely, pyproj, scipy, numpy,

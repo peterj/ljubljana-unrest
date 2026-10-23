@@ -4,6 +4,7 @@ Cache (git-ignored):
     .cache/osm/index-v1.json              Geofabrik's region index (refreshed after a week)
     .cache/osm/<region>-latest.osm.pbf    the region extract (re-downloaded with --refresh)
     .cache/maps/<city>-<area>.osm.pbf     the map's bbox (+ margin), reference-complete
+    .cache/maps/<city>-<area>.editor.json what the map editor draws, from the last build
 """
 import hashlib
 import json
@@ -95,6 +96,10 @@ def clip(src, lonlat_box, dst):
                     w.add_way(o)
             elif o.tags.get("type") == "multipolygon" and any(m.type == "w" and m.ref in ways for m in o.members):
                 w.add_relation(o)
+
+
+def editor_file(m):
+    return CACHE / "maps" / f"{m.city}-{m.area}.editor.json"
 
 
 def map_pbf(m, refresh=False):

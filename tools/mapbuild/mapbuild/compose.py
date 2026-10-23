@@ -9,6 +9,7 @@ Outputs (local metres, origin = the map's center, +x east, +y north):
 import sys
 
 import numpy as np
+from pyproj import Transformer
 from PIL import Image, ImageDraw
 from scipy import ndimage
 from shapely.geometry import MultiPolygon, Point, Polygon, box
@@ -379,4 +380,37 @@ def compose(F, m, source):
                       for p in landmarks],
         "labels": labels,
     }
-    return city, {"sdf.bin": sdf_i8, "cost.bin": cost_u8, "cctv.bin": cctv}
+    return city, {"sdf.bin": sdf_i8, "cost.bin": cost_u8, "cctv.bin": cctv}, editor_view(m, buildings, landmarks, F, city)
+
+
+def editor_view(m, buildings, landmarks, F, city):
+    """What the map editor (tools/editor) draws over the basemap, in [lon, lat]: buildings with their OSM ids, every
+    landmark candidate (used or not), and the built route, entries and targets."""
+    inv = Transformer.from_crs(m.crs, "EPSG:4326", always_xy=True)
+
+    def flat(xs, ys):
+        lon, lat = inv.transform(np.asarray(xs, float), np.asarray(ys, float))
+        return np.round(np.column_stack([lon, lat]), 6).ravel().tolist()
+
+    def ll(x, y):
+        return flat([x], [y])
+
+    clip = box(*m.box)
+    used = {p["osm"] for p in landmarks}
+    cands = []
+    for c in F.candidates:
+        pt = c["geom"].representative_point() if c["geom"].geom_type != "Point" else c["geom"]
+        if clip.contains(pt):
+            cands.append({"osm": c["osm"], "kind": c["kind"], "auto": c["auto"], "name": c["name"],
+                          "at": ll(pt.x, pt.y), "used": c["osm"] in used})
+    return {
+        "center": list(m.center),
+        "size": list(m.size),
+        "source": city["source"],
+        "buildings": [{"osm": b["osm"], "k": b["kind"], "n": b["name"], "p": flat(*b["poly"].exterior.xy)}
+                      for b in buildings],
+        "candidates": cands,
+        "route": flat(*zip(*city["route"])) if city["route"] else [],
+        "entries": [{"name": e["name"], "at": ll(*e["pos"])} for e in city["entries"]],
+        "targets": {k: {"at": ll(*t["pos"]), "exits": [ll(*e) for e in t["exits"]]} for k, t in city["targets"].items()},
+    }

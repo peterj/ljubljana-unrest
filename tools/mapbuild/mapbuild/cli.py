@@ -39,7 +39,9 @@ def compare(old, new):
     return ok
 
 
-def write(out, city, rasters):
+def write(out, city, rasters, editor, m):
+    editor["built"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    fetch.editor_file(m).write_text(json.dumps(editor, ensure_ascii=False, separators=(",", ":")))
     out.mkdir(parents=True, exist_ok=True)
     for name, arr in rasters.items():
         arr.tofile(out / name)
@@ -66,7 +68,7 @@ def main(argv=None):
     t = time.time()
     pbf, source = fetch.map_pbf(m, a.refresh)
     F = osm.load(pbf, m)
-    city, rasters = compose.compose(F, m, source)
+    city, rasters, editor = compose.compose(F, m, source)
     print(f"built {m.id} in {time.time() - t:.0f} s", file=sys.stderr)
 
     old = out / "city.json"
@@ -76,7 +78,7 @@ def main(argv=None):
         sys.exit(0 if compare(json.loads(old.read_text()), city) else 1)
     if old.exists():
         compare(json.loads(old.read_text()), city)
-    write(out, city, rasters)
+    write(out, city, rasters, editor, m)
 
 
 if __name__ == "__main__":

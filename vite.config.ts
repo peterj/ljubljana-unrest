@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { mapEditor } from './tools/editor/plugin.ts';
 
 // share tags need absolute URLs; set SITE_URL to where the build will live (any subdirectory), e.g.
 // SITE_URL=https://example.com/unrest/ npm run build. Without it they stay relative (fine for local use).
@@ -18,7 +19,7 @@ const shareTags = {
 // base './' so the build runs from any subdirectory on shared hosting
 export default defineConfig( {
 	base: './',
-	plugins: [ shareTags ],
+	plugins: [ shareTags, mapEditor() ],
 	build: { target: 'es2022', outDir: 'dist', chunkSizeWarningLimit: 2000 },
 	worker: { format: 'es' },
 } );
