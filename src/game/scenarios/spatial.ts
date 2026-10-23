@@ -72,6 +72,15 @@ export class SpatialHost {
 
 	}
 
+	roadSpan( at, maxDistance = 30 ) {
+
+		check( Number.isFinite( maxDistance ) && maxDistance > 0 && maxDistance <= 100, 'spatial.roadSpan.maxDistance', 'must be positive and at most 100 meters' );
+		const [ first, second ] = this.runtime.adapter.roadSpan( this.runtime.location( at ), maxDistance );
+		const a = point( first, 'spatial.roadSpan.a' ), b = point( second, 'spatial.roadSpan.b' );
+		return Object.freeze( { a, b, width: Math.hypot( b[ 0 ] - a[ 0 ], b[ 1 ] - a[ 1 ] ) } );
+
+	}
+
 	prepareBuilding( alias, exitAt = {} ) {
 
 		const key = JSON.stringify( [ alias, exitAt ] );

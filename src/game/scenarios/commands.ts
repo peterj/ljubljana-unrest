@@ -135,10 +135,19 @@ export class CommandHost {
 	execute( owner, id, options, source = 'behavior' ) {
 
 		this.runtime.writable();
-		fields( options, [ 'at', 'selection' ], 'commands.execute' );
+		fields( options, [ 'at', 'selection', 'opinion' ], 'commands.execute' );
 		const definition = this.definitions.get( id );
 		check( definition, 'commands.execute.id', `unknown command '${id}'` );
 		check( [ 'starting', 'running', 'paused' ].includes( this.runtime.state ), 'commands.execute', 'scenario has not started' );
+		if ( options.opinion !== undefined ) {
+
+			check( owner !== null && [ 'gas', 'water' ].includes( id ), 'commands.execute.opinion', 'is available only to behavior-owned gas/water orders' );
+			fields( options.opinion, [ 'delta', 'reason' ], 'commands.execute.opinion' );
+			check( Number.isFinite( options.opinion.delta ) && Math.abs( options.opinion.delta ) <= 10, 'commands.execute.opinion.delta', 'must be finite and within 10 points' );
+			check( typeof options.opinion.reason === 'string' && options.opinion.reason.trim() !== '' && options.opinion.reason.length <= 100,
+				'commands.execute.opinion.reason', 'must be non-empty text up to 100 characters' );
+
+		}
 		const at = this.runtime.location( options.at ), selected = options.selection ?? [];
 		check( Array.isArray( selected ) && Array.from( selected ).every( ( handle ) => handle && typeof handle === 'object' ), 'commands.selection', 'must be a dense array of actor handles' );
 		const selection = Object.freeze( [ ...selected ] ), info = catalog[ id ];
@@ -199,7 +208,8 @@ export class CommandHost {
 		}
 		const controller = new AbortController();
 		let resolve, done = false, timer;
-		const request = Object.freeze( { id, at, selection, source, operation: operationId, ...( target ? { target } : {} ) } );
+		const request = Object.freeze( { id, at, selection, source, operation: operationId, ...( target ? { target } : {} ),
+			...( options.opinion === undefined ? {} : { opinion: Object.freeze( { delta: options.opinion.delta, reason: options.opinion.reason } ) } ) } );
 		const current = () => ! controller.signal.aborted && ( ! owner || [ 'starting', 'active' ].includes( owner.state ) ) && [ 'starting', 'running', 'paused' ].includes( this.runtime.state )
 			&& actors.every( ( actor ) => this.runtime.actors.get( actor.handle.id ) === actor && this.claims.get( actor.handle ) === operation );
 		const settle = ( outcome ) => {
@@ -259,6 +269,7 @@ export class CommandHost {
 				const value = Object.freeze( { command: id, at, selection, resource: definition.resource,
 					appliedAt: this.runtime.time, affected: Object.freeze( [ ...( applied.value?.affected ?? selection ) ] ),
 					...( target ? { target: target.person } : {} ), ...( applied.value ?? {} ) } );
+				this.runtime.adapter.commandApplied?.( request, value );
 				event( 'command.applied', { receipt: value } ); settle( { status: 'completed', value } );
 				event( 'command.completed', { receipt: value } );
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ResourceHost, resourceDefinitions } from '../src/game/scenarios/resources.ts';
 import { CommandHost, commandDefinitions, policeCommands } from '../src/game/scenarios/commands.ts';
+import { ScenarioEngine } from '../src/game/scenarios/engine.ts';
 import { defineScenario, survive } from '../src/game/scenarios/definition.ts';
 import { ScenarioRuntime } from '../src/game/scenarios/runtime.ts';
 
@@ -71,6 +72,28 @@ test( 'command resources spend only after application; duplicate final-unit requ
 	assert.equal( commands.escalation, 2 );
 	assert.deepEqual( events.filter( ( event ) => event.operation === first.id ).map( ( event ) => event.type ),
 		[ 'command.attempted', 'command.accepted', 'command.applied', 'command.completed' ] );
+
+} );
+
+test( 'applied behavior commands invoke the shared adapter side-effect hook exactly once', async () => {
+
+	const { commands, runtime, pending } = commandFixture(), applied = [];
+	runtime.adapter.commandApplied = ( request, receipt ) => applied.push( { request, receipt } );
+	const owner = { id: 'ai-director', state: 'active', operations: new Set<any>() };
+	const operation = commands.execute( owner, 'gas', { at: [ 10, 20 ], opinion: { delta: 1, reason: 'AI volley' } } );
+	await Promise.resolve(); pending[ 0 ].resolve( {} );
+	assert.equal( ( await operation.settled as any ).status, 'completed' );
+	assert.equal( applied.length, 1 );
+	assert.equal( applied[ 0 ].request.source, 'behavior' );
+	assert.equal( applied[ 0 ].receipt.command, 'gas' );
+	assert.deepEqual( applied[ 0 ].request.opinion, { delta: 1, reason: 'AI volley' } );
+
+	const opinion = [], mission = { counters: { gas: 0 }, gasOpinion: - 2, waterOpinion: - 3,
+		nudgeOpinion: ( delta, reason ) => opinion.push( [ delta, reason ] ) };
+	const adapter = new ScenarioEngine( mission );
+	adapter.commandApplied( { id: 'gas', opinion: { delta: 1, reason: 'AI volley' } } ); adapter.commandApplied( { id: 'water' } );
+	assert.equal( mission.counters.gas, 1 );
+	assert.deepEqual( opinion, [ [ 1, 'AI volley' ], [ - 3, 'water cannon' ] ] );
 
 } );
 

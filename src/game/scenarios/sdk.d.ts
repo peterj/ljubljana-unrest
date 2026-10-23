@@ -81,10 +81,19 @@ export interface SpatialContext {
     building(targetAlias: string, exitAt?: Readonly<Record<number, Point>>): BuildingMeasurement | null;
     /** Nearest connected street point with host clearance; default search 60 meters, maximum 1000. */
     walkable(at: string | Point, radius?: number): Point | null;
+    /** Shortest host-measured road span through a point, with wall-to-wall endpoints and width in meters. */
+    roadSpan(at: string | Point, maxDistance?: number): RoadSpan;
     /** Meters from the point to the nearest building or obstacle; null when the map cannot say. */
     clearance(at: string | Point): number | null;
     /** Map-edge street entries where arriving crowds come from, with their street names when known. */
     entries(): readonly { readonly name: string | null; readonly position: Point }[];
+}
+
+/** Wall-to-wall street segment measured by the host's signed-distance field. */
+export interface RoadSpan {
+    readonly a: Point;
+    readonly b: Point;
+    readonly width: number;
 }
 
 /** Synchronous civilian crowd mutation; implementation details remain inside the host adapter. */
@@ -344,6 +353,8 @@ export interface CommandRequest {
     at: string | Point;
     /** Squads or one selected water-cannon/patrol vehicle; gas/reinforce need no selection. */
     selection?: readonly ActorHandle[];
+    /** Behavior-only gas/water opinion override for source-specific AI policy; maximum absolute delta is 10. */
+    opinion?: { delta: number; reason: string };
 }
 
 /** Successful application to host simulation, not proof of arrival, an arrest, or an injury. */
@@ -641,10 +652,12 @@ export interface VehicleSpawnOptions {
     at: string | Point;
     /** Seats, including any accompanying bearer; default 1, maximum 8. */
     capacity?: number;
-    /** Vehicle capability; transport is default, police-patrol creates a selectable car with crew. */
+    /** Vehicle capability; transport is default, police-patrol creates a police car with optional crew. */
     type?: 'transport' | 'water-cannon' | 'police-patrol' | 'prisoner-van';
-    /** Crew size for police-patrol only; defaults to eight, maximum sixteen. */
+    /** Crew size for police-patrol only; defaults to eight, zero creates a crewless police car, maximum sixteen. */
     crew?: number;
+    /** Override the default selection state; useful for static AI roadblocks. */
+    selectable?: boolean;
     /** Display label; defaults to ID. */
     label?: string;
 }
@@ -1458,7 +1471,7 @@ export interface PlayerAction {
     readonly how?: string;
     /** Semantic command key when the player issued an order. */
     readonly key?: string;
-    /** Local destination for movement, driving, or targeted orders. */
+    /** Local destination for movement, driving, targeted orders, or the cursor position when an unbound key is pressed. */
     readonly at?: Point;
     /** Cordon start point on line actions. */
     readonly line?: Point;
@@ -1568,7 +1581,7 @@ export interface OpinionPolicy {
 export interface ScenarioOptions {
     /** Finite named resources; default empty. */
     resources?: Record<string, ResourceOptions>;
-    /** Opt-in standard police orders; gas/reinforce definitions must reference declared resources. */
+    /** Opt-in standard police orders; protest-side scenarios can use these for behavior-owned AI, not player controls. */
     commands?: readonly PoliceCommandDefinition[];
     /** Commands hidden from the first briefing until an owning behavior unlocks them. */
     initiallyLockedCommands?: readonly PoliceCommandId[];
@@ -1596,7 +1609,7 @@ export interface ScenarioOptions {
     subtitle: string;
     /** Briefing text; the host escapes text and preserves only supported limited markup. */
     brief: string;
-    /** Controlled side; protest scenarios expose crowd movement and no standard police orders. Defaults to police. */
+    /** Controlled side; protest scenarios expose crowd movement while keeping police orders out of player controls. Defaults to police. */
     side?: 'police' | 'protest';
     /** City id such as 'belgrade'; null or omission selects Ljubljana. Without `map`, a name that is not a city id
      *  selects a Ljubljana map folder (the older form, e.g. 'north'). */

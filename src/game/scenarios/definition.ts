@@ -277,7 +277,6 @@ export function defineScenario( options ) {
 	const indicators = metricIndicators( options.indicators ?? [] );
 	const { kind, ...objective } = options.objectives[ 0 ];
 	const resources = resourceDefinitions( options.resources ), commands = commandDefinitions( options.commands, resources );
-	check( options.side !== 'protest' || commands.length === 0, 'scenario.commands', 'police commands are unavailable to protest scenarios' );
 	const initiallyLockedCommands = options.initiallyLockedCommands ?? [];
 	check( dense( initiallyLockedCommands, ( id ) => typeof id === 'string' && commands.some( ( command ) => command.id === id ) ),
 		'scenario.initiallyLockedCommands', 'must be a dense list of declared command IDs' );
