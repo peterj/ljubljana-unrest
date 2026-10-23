@@ -17,6 +17,12 @@ OpenStreetMap into `public/data/<city>/<area>/` (`city.json`, `sdf.bin`, `cost.b
 - **Save** writes the settings file, **Build** runs the build and streams its log, **Raster** overlays the
   walking cost, distance and CCTV grids the game will use.
 
+## Using a map in a scenario
+
+A scenario picks the map with `city: '<city>', map: '<area>'` and refers to what the settings name: `place(name)`,
+`target(label)` and `landmark(name)`. See [docs/PLUGIN_AUTHORING.md](../docs/PLUGIN_AUTHORING.md#maps).
+`/?map=<city>/<area>` (the editor's "Open in the game") shows the built map in the game without a scenario.
+
 ## Requirements
 
 [uv](https://docs.astral.sh/uv/) installs Python and the dependencies (pyosmium, shapely, pyproj, scipy, numpy,
@@ -64,7 +70,8 @@ Only `name`, `center` and `size` are required.
 - **places** are the named open spaces that missions use as anchors and that the map labels.
 - **route** is the convoy route: the fastest way by car from `from` to `to`, one-way streets respected.
 - **targets** are buildings to defend or take, by OSM id. Each gets a footprint, a radius and up to three
-  evacuation exits on nearby streets, and is a landmark under its `label`.
+  evacuation exits on nearby streets, and is a landmark under its `label` (a landmark on the footprint takes the
+  label).
 - **landmarks** are labelled and coloured buildings (`kind`: gov, police, hospital, embassy, media, transit,
   landmark). With `auto`, the build picks them from OSM tags: police stations, hospitals, town halls, courts,
   parliament, presidency and ministries (`government=legislative|presidency|ministry|…`), embassies, TV and

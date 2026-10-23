@@ -54,6 +54,25 @@ The current preview supports police-side scenarios with one primary objective: `
 
 `phase` supplies short synchronous HUD text. `indicators` adds rows driven by supported semantic counters. `initiallyLockedCommands` hides configured orders from the briefing until a behavior unlocks them.
 
+## Maps
+
+`city` and `map` pick the map a scenario plays on. Without them it plays on central Ljubljana.
+
+```js
+defineScenario( { id: 'assembly-vigil', city: 'belgrade', map: 'centre', /* … */ } );
+```
+
+Maps of cities other than Ljubljana are built from OpenStreetMap with the map editor (`npm run editor`) or
+`npm run build:map -- <city>/<map>`, from settings in `maps/<city>/<map>.json` (see [maps/README.md](../maps/README.md)).
+The names given there are the names a scenario uses: places for `place(name)`, targets for `target(name)` (a
+target is also a landmark under its label), and landmarks found by OSM tags for `landmark(name)`, under their OSM
+names unless the settings rename them. The convoy route is the one set in the editor, and arrivals use the map-edge
+entries and bus stops. Every build lists the names it lost since the previous one.
+
+`/?map=<city>/<map>` shows a built map without a scenario, with the counts of what it holds. A city appears on the
+landing page once a listed scenario plays there. Ljubljana's second map is `city: 'ljubljana', map: 'north'`; the
+older form `city: 'north'` still works.
+
 ## Runtime Capabilities
 
 Setup can spawn crowds, bystanders, squads, and vehicles. Spawn calls return owned operations; inspect `settled` outcomes when later logic depends on allocation. Setup waits for outstanding owned operations before entering the briefing.
@@ -82,6 +101,6 @@ When enabled, the game asks before importing a remote URL and remembers a confir
 
 ## Current Limits
 
-The Scenario SDK is an experimental preview, not a full replacement for the built-in mission system. Existing missions stay on their original path until each candidate passes its own parity gate. Scenario-specific directors, protest-side systems, custody workflows, overlays, and full score/result compatibility are still under development. Setting `city` alone does not guarantee map independence; shared host helpers and authored routes may still be Ljubljana-specific.
+The Scenario SDK is an experimental preview, not a full replacement for the built-in mission system. Existing missions stay on their original path until each candidate passes its own parity gate. Scenario-specific directors, protest-side systems, custody workflows, overlays, and full score/result compatibility are still under development. Built-in missions and templates name Ljubljana places (the defend template's default target is `'Državni zbor'`), so a scenario on another map names its own.
 
 Run `npm test`, `npm run build`, and `tsc --noEmit --strict --lib ES2022,DOM src/game/scenarios/index.d.ts` when changing the SDK. Add source-backed tests for setup, timing, outcomes, scoring, and player workflows, plus a browser smoke when the host/UI path is involved.

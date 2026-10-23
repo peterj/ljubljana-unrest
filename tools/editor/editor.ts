@@ -825,6 +825,7 @@ function renderPanel() {
 		<button data-act="build"${ state.building ? ' disabled' : '' }>${ state.building ? 'Building…' : state.dirty ? 'Save and build' : 'Build' }</button>
 		<span class="grow ${ state.dirty ? 'warn' : 'ok' }">${ state.dirty ? 'unsaved changes' : 'saved' }</span></div>
 		<p class="hint">${ built }${ moved ? ' <span class="warn">The play area changed since: build again.</span>' : '' }</p>
+		${ v ? `<p class="hint"><a href="/?map=${ esc( state.id ) }" target="_blank" rel="noopener">Open in the game</a> (the map without a mission; scenarios use <code>city: '${ esc( state.id.split( '/' )[ 0 ] ) }', map: '${ esc( state.id.split( '/' )[ 1 ] ) }'</code>)</p>` : '' }
 		${ state.status ? `<p class="hint">${ state.status }</p>` : '' }
 		<pre id="log">${ esc( state.log.join( '\n' ) ) }</pre></section>`;
 

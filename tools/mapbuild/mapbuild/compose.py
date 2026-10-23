@@ -348,7 +348,11 @@ def compose(F, m, source):
             if len(exits) == 3:
                 break
         c = fp.centroid
-        if all(p["name"] != t["label"] for p in landmarks):  # world.marks finds every target by its label
+        # world.marks finds every target by its label: a landmark on the footprint takes the label, or one is added
+        inside = [p for p in landmarks if fp.buffer(5).contains(p["c"])]
+        for p in inside:
+            p["name"] = t["label"]
+        if not inside and all(p["name"] != t["label"] for p in landmarks):
             landmarks.append({"osm": t["osm"], "kind": "gov", "name": t["label"], "c": c})
         targets[t["label"]] = {"pos": loc(c.x, c.y), "radius": r1(np.sqrt(fp.area / np.pi) + 6),
                                "exits": [loc(x, y) for x, y in exits], "poly": [enc_poly(p) for p in polys(fp)]}

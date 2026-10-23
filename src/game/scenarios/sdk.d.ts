@@ -1546,8 +1546,11 @@ export interface ScenarioOptions {
     brief: string;
     /** Controlled side; only police scenarios are implemented in this preview. */
     side?: 'police';
-    /** Optional folder under public/data; null or omission selects the default map. */
+    /** City id such as 'belgrade'; null or omission selects Ljubljana. Without `map`, a name that is not a city id
+     *  selects a Ljubljana map folder (the older form, e.g. 'north'). */
     city?: string | null;
+    /** The city's map, built from maps/<city>/<map>.json; null or omission selects 'centre'. */
+    map?: string | null;
     /** Briefing goal strings; display copy, separate from executable objective rules. */
     goals?: string[];
     /** Optional briefing tips; each entry must be non-empty text. */
@@ -1598,8 +1601,10 @@ export interface ScenarioDefinition {
     readonly brief: string;
     /** Normalized supported side, defaulting to police. */
     readonly side: 'police';
-    /** Selected map folder, normalized to null for the default map. */
+    /** Selected city id, normalized to null for Ljubljana. */
     readonly city: string | null;
+    /** Selected map of the city, normalized to null for 'centre'. */
+    readonly map: string | null;
     /** Detached, frozen briefing goals; defaults to an empty array. */
     readonly goals: readonly string[];
     /** Detached, frozen briefing tips; defaults to an empty array. */

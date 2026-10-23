@@ -44,6 +44,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px); padding: 10px 12px; }
 .panel h2 { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; font-weight: 500; }
 .hint { color: var(--dim); font-size: 11px; line-height: 1.4; margin: 0 0 8px; }
+#preview { top: 16px; left: 16px; max-width: 340px; }
+#preview button { padding: 3px 10px; }
 
 #topbar {
 	position: fixed; top: 0; left: 0; right: 0; height: 44px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;

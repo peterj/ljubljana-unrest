@@ -65,7 +65,8 @@ export class Mission {
 	static brief = '';
 	static goals: readonly string[] = [];
 	static tips: readonly string[] = [];
-	static city = null; // map folder under public/data/ (null: the default city)
+	static city = null; // city id (null: Ljubljana); see game/cities.ts
+	static map = null; // the city's map, maps/<city>/<map>.json (null: 'centre')
 	static flashing = false; // uses strobe effects: the top bar shows their on / off button
 	static prepare( city ) {} // may patch the map data before the simulation is built; each mission is a fresh page load
 
@@ -234,8 +235,10 @@ export class Mission {
 	async bystanders( n ) {
 
 		const P = this.world.places, M = this.world.marks;
-		// a mission on its own map lists its own places to wander between
-		const dests = this.wanderPlaces ?? [ P[ 'Prešernov trg' ], P[ 'Kongresni trg' ], P[ 'Metelkova' ], M[ 'Železniška postaja' ], P[ 'Park Tivoli' ], P[ 'Mestni trg' ], P[ 'Zmajski most' ] ];
+		// a mission on its own map lists its own places to wander between; on a map without these, its places do
+		const central = [ P[ 'Prešernov trg' ], P[ 'Kongresni trg' ], P[ 'Metelkova' ], M[ 'Železniška postaja' ], P[ 'Park Tivoli' ], P[ 'Mestni trg' ], P[ 'Zmajski most' ] ];
+		const own = Object.values( P ).length >= 2 ? Object.values( P ) : Object.values( M ).slice( 0, 7 );
+		const dests = this.wanderPlaces ?? ( central.every( Boolean ) ? central : own.length ? own : [ [ 0, 0 ] ] );
 		this.wander = await Promise.all( dests.map( ( d, k ) => this.world.field( 'wander' + k, d[ 0 ], d[ 1 ], 25, true ) ) );
 		const [ x0, y0, x1, y1 ] = this.city.bounds;
 		for ( let k = 0; k * 12 < n; k ++ ) {
