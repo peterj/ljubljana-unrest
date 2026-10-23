@@ -33,9 +33,11 @@ See the [mission plugin authoring guide](docs/PLUGIN_AUTHORING.md) to create and
 
 Set `SITE_URL=https://example.com/path/` when building to make the share-card tags absolute.
 
-The map data in `public/data/` is pre-built and included. `npm run build:city` regenerates it from a
-PostGIS database (see `tools/build_city.py`; the connection comes from `BLOKI_DSN` or the standard
-`PG*` environment variables).
+The map data in `public/data/` is pre-built and included. `npm run build:city` regenerates the Ljubljana
+maps from a PostGIS database (see `tools/build_city.py`; the connection comes from `BLOKI_DSN` or the
+standard `PG*` environment variables). Maps of other cities are built from OpenStreetMap extracts with
+`npm run build:map -- <city>/<area>`, which needs only [uv](https://docs.astral.sh/uv/); see
+[`maps/README.md`](maps/README.md).
 
 ## Built with
 

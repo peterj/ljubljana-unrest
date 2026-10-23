@@ -16,7 +16,9 @@
     "typecheck": "tsc -p . && tsc -p tsconfig.sdk.json",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
-    "build:city": "python tools/build_city.py"
+    "build:city": "python tools/build_city.py",
+    "build:map": "uv run --project tools/mapbuild mapbuild",
+    "test:map": "uv run --project tools/mapbuild python -m unittest discover -s tools/mapbuild/tests"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
