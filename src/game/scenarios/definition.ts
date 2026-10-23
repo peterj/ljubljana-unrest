@@ -212,11 +212,12 @@ function opinionPolicy( value = {} ) {
 
 export function defineScenario( options ) {
 
-	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion' ], 'scenario' );
+	fields( options, [ 'id', 'title', 'subtitle', 'brief', 'side', 'city', 'map', 'goals', 'tips', 'locations', 'setup', 'objectives', 'behaviors', 'resources', 'commands', 'initiallyLockedCommands', 'score', 'menu', 'seed', 'outcomes', 'indicators', 'phase', 'opinion' ], 'scenario' );
 	check( typeof options.id === 'string' && ID.test( options.id ), 'scenario.id', 'must be a lowercase slug' );
 	for ( const key of [ 'title', 'subtitle', 'brief' ] ) check( text( options[ key ] ), `scenario.${key}`, 'must be a non-empty string' );
 	check( options.side === undefined || options.side === 'police', 'scenario.side', 'this SDK preview supports police scenarios only' );
-	check( options.city == null || ( typeof options.city === 'string' && /^[a-z0-9_-]+$/.test( options.city ) ), 'scenario.city', 'must be a map folder name' );
+	check( options.city == null || ( typeof options.city === 'string' && /^[a-z0-9_-]+$/.test( options.city ) ), 'scenario.city', 'must be a city id' );
+	check( options.map == null || ( typeof options.map === 'string' && /^[a-z0-9_-]+$/.test( options.map ) ), 'scenario.map', 'must be a map name' );
 	for ( const key of [ 'goals', 'tips' ] ) check( dense( options[ key ] ?? [], text ), `scenario.${key}`, 'must be a dense array of non-empty strings' );
 	check( options.setup === undefined || typeof options.setup === 'function', 'scenario.setup', 'must be a function' );
 	check( options.score == null || typeof options.score === 'function', 'scenario.score', 'must be a synchronous scoring function' );
@@ -255,7 +256,7 @@ export function defineScenario( options ) {
 		'scenario.initiallyLockedCommands', 'must be a dense list of declared command IDs' );
 	check( new Set( initiallyLockedCommands ).size === initiallyLockedCommands.length, 'scenario.initiallyLockedCommands', 'IDs must be unique' );
 	return Object.freeze( { kind: 'scenario', sdkVersion: SDK_VERSION, id: options.id, title: options.title,
-		subtitle: options.subtitle, brief: options.brief, side: 'police', city: options.city ?? null,
+		subtitle: options.subtitle, brief: options.brief, side: 'police', city: options.city ?? null, map: options.map ?? null,
 		goals: Object.freeze( [ ...( options.goals ?? [] ) ] ), tips: Object.freeze( [ ...( options.tips ?? [] ) ] ), menu: options.menu ?? true,
 		locations: Object.freeze( locations ), setup: options.setup, score: options.score ?? null, seed: options.seed ?? null,
 		behaviors: Object.freeze( behaviors ), outcomes: Object.freeze( outcomes ), indicators, phase: options.phase ?? null, opinion: opinionPolicy( options.opinion ),

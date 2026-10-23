@@ -1,0 +1,20 @@
+[project]
+name = "mapbuild"
+version = "0.1.0"
+description = "Builds Cordon Bleu maps from OpenStreetMap extracts"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "osmium>=4.0",
+    "pillow>=10",
+    "pyproj>=3.6",
+    "scipy>=1.11",
+    "shapely>=2.0",
+]
+
+[project.scripts]
+mapbuild = "mapbuild.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

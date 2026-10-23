@@ -18,6 +18,7 @@ export function scenarioMission( value ) {
 		static brief = definition.brief;
 		static side = definition.side;
 		static city = definition.city;
+		static map = definition.map;
 		static goals = definition.goals;
 		static tips = definition.tips;
 		static menu = definition.menu;

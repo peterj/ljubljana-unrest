@@ -9,7 +9,7 @@ import { Crowd, FACTION } from './sim/crowd.ts';
 import { World } from './sim/world.ts';
 import { BUILTIN } from './game/missions/index.ts';
 import { MISSIONS, registerMission, findMission } from './game/registry.ts';
-import { CITIES, findCity, cityOf } from './game/cities.ts';
+import { citiesFor, findCity, cityOf, mapOf } from './game/cities.ts';
 import { loadPlugins } from './game/plugins.ts';
 import { Patrols } from './game/patrols.ts';
 import { Labels } from './labels.ts';
@@ -94,12 +94,24 @@ class Game {
 		};
 		if ( ! ( this.renderer.backend as THREE.Backend & { isWebGPUBackend?: boolean } ).isWebGPUBackend ) return fail( 'WebGPU adapter unavailable — the crowd simulation needs compute shaders.' );
 
-		// a mission may play on its own map (public/data/<city>/, see tools/build_city.py AREAS)
+		// a mission plays on its city's map (static city and map, see game/cities.ts); ?map=<city>/<map> shows a map
+		// without a mission (the map editor links there)
 		const params = new URLSearchParams( location.search ), id = params.get( 'm' );
 		// plugins from other sites run code in this page: only in dev, or in a build made with VITE_REMOTE_PLUGINS=1 (and the player confirms)
 		this.plugins = await loadPlugins( params.getAll( 'plugin' ), { allowRemote: import.meta.env.DEV || import.meta.env.VITE_REMOTE_PLUGINS === '1' } );
 		const M = findMission( id );
-		this.city = await loadCity( M?.city ? `./data/${M.city}/` : './data/' );
+		const preview = ! M && /^[a-z0-9_-]+\/[a-z0-9_-]+$/.test( params.get( 'map' ) ?? '' ) ? params.get( 'map' ).split( '/' ) : null;
+		const { base } = mapOf( preview ? { city: preview[ 0 ], map: preview[ 1 ] } : M );
+		try {
+
+			this.city = await loadCity( base );
+
+		} catch {
+
+			return fail( `No map in public/data at ${ base.slice( 2 ) }: build it first (npm run build:map).` );
+
+		}
+
 		boot.textContent = 'building city…';
 		this.scene = new THREE.Scene();
 		this.scene.background = PAL.bg;
@@ -108,8 +120,12 @@ class Game {
 		this.controls = new PanZoom( this.camera, canvas, { bounds: this.city.bounds } );
 		// holding the button while aiming aims, and while drawing a cordon (L, or Ctrl) it draws: neither pans
 		this.controls.shouldPan = ( e ) => ! e.shiftKey && ! e.ctrlKey && ! this.armed && ! this.aiming && ! this.drawing;
-		this.controls.center.set( - 250, 50 );
-		this.controls.mpp = 0.9;
+		if ( base === './data/' ) {
+
+			this.controls.center.set( - 250, 50 );
+			this.controls.mpp = 0.9;
+
+		} else this.frameMap();
 		this.labels = new Labels( document.getElementById( 'labels' ), this.city, this.controls );
 		this.overlay = new Overlay( document.getElementById( 'overlay' ), this.controls );
 		this.sound = new Sound( this );
@@ -142,7 +158,8 @@ class Game {
 		this._input( canvas );
 
 		if ( M ) await this.load( M );
-		else this.home( findCity( params.get( 'c' ) ) );
+		else if ( preview ) this.hud.preview( preview.join( '/' ), this.city, () => { location.search = this.query(); } );
+		else this.home( findCity( params.get( 'c' ), this.listed() ) );
 
 		boot.classList.add( 'hide' );
 		this.renderer.setAnimationLoop( () => this.frame() );
@@ -153,14 +170,24 @@ class Game {
 	// a mission is a fresh page load: simplest way to get pristine GPU state (the plugins come along, they are loaded again)
 	go( id ) { location.search = this.query( { m: id } ); }
 
+	listed() { return MISSIONS.filter( ( mission ) => mission.menu !== false ); }
+
+	// the whole map in view (maps other than Ljubljana's centre have no hand-picked opening view)
+	frameMap() {
+
+		const [ x0, y0, x1, y1 ] = this.city.bounds;
+		this.controls.center.set( ( x0 + x1 ) / 2, ( y0 + y1 ) / 2 );
+		this.controls.mpp = 1.05 * Math.max( ( x1 - x0 ) / window.innerWidth, ( y1 - y0 ) / window.innerHeight );
+
+	}
+
 	// the landing page, or a city's missions
 	home( city ) {
 
-		const listed = MISSIONS.filter( ( mission ) => mission.menu !== false ), failed = this.plugins.failed;
+		const listed = this.listed(), failed = this.plugins.failed;
 		const pick = ( q ) => this.go( q.id );
 		if ( city ) this.hud.menu( city, listed.filter( ( q ) => cityOf( q ) === city.id ), pick, () => { location.search = this.query(); }, failed );
-		else this.hud.home( listed.find( ( q ) => q.tutorial ), CITIES.map( ( c ) => ( { ...c, missions: listed.filter( ( q ) => cityOf( q ) === c.id ).length } ) ),
-			pick, ( c ) => { location.search = this.query( { c: c.id } ); }, failed );
+		else this.hud.home( listed.find( ( q ) => q.tutorial ), citiesFor( listed ), pick, ( c ) => { location.search = this.query( { c: c.id } ); }, failed );
 
 	}
 

@@ -279,6 +279,24 @@ export class Hud {
 
 	}
 
+	// a built map without a mission (?map=<city>/<map>, linked from the map editor): what missions can refer to by name
+	preview( id, city, onHome ) {
+
+		const n = ( k ) => city.pois.filter( ( p ) => p.kind === k ).length;
+		const src = city.source ? `${esc( city.source.extract )}, ${esc( city.source.timestamp?.slice( 0, 10 ) ?? '?' )}` : 'tools/build_city.py';
+		const el = document.createElement( 'div' );
+		el.id = 'preview';
+		el.className = 'panel';
+		el.innerHTML = `<h2>Map preview // ${esc( id )}</h2>
+			<p class="hint">${city.buildings.length} buildings · ${n( 'place' )} places · ${city.landmarks.length} landmarks ·
+				${Object.keys( city.targets ).length} targets · ${city.entries.length} entries · ${n( 'bus' )} stops · ${n( 'camera' )} cameras${city.route.length ? ' · a convoy route' : ''}</p>
+			<p class="hint">Data: ${src}. Drag to pan, wheel to zoom.</p>
+			<button id="pvHome">Home</button>`;
+		document.body.append( el );
+		el.querySelector<HTMLElement>( '#pvHome' ).onclick = onHome;
+
+	}
+
 	// one city's missions
 	menu( city, missions, onPick, onBack, notes = [] ) {
 

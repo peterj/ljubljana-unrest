@@ -4,7 +4,7 @@ import { Mission } from './mission.ts';
 export const MISSIONS = [];
 
 const ID = /^[a-z0-9][a-z0-9-]{0,39}$/; // it goes into the URL (?m=) and the saved-stars key
-const CITY = /^[a-z0-9_-]+$/; // a folder under public/data/
+const CITY = /^[a-z0-9_-]+$/; // a city id, or (without static map) a Ljubljana map folder; see game/cities.ts
 const text = ( v ) => typeof v === 'string' && v.trim() !== '';
 
 // why a mission class cannot be registered, or null
@@ -16,7 +16,8 @@ export function problem( M ) {
 	for ( const k of [ 'title', 'subtitle', 'brief' ] ) if ( ! text( M[ k ] ) ) return `static ${k} must be a non-empty string`;
 	if ( M.side !== 'police' && M.side !== 'protest' ) return "static side must be 'police' or 'protest'";
 	for ( const k of [ 'goals', 'tips' ] ) if ( ! Array.isArray( M[ k ] ) || ! M[ k ].every( text ) ) return `static ${k} must be an array of non-empty strings`;
-	if ( M.city != null && ( typeof M.city !== 'string' || ! CITY.test( M.city ) ) ) return 'static city must be a folder name under public/data/';
+	if ( M.city != null && ( typeof M.city !== 'string' || ! CITY.test( M.city ) ) ) return "static city must be a city id such as 'belgrade'";
+	if ( M.map != null && ( typeof M.map !== 'string' || ! CITY.test( M.map ) ) ) return "static map must be a map name such as 'centre'";
 	return null;
 
 }
