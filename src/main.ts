@@ -9,6 +9,7 @@ import { Crowd, FACTION } from './sim/crowd.ts';
 import { World } from './sim/world.ts';
 import { BUILTIN } from './game/missions/index.ts';
 import { MISSIONS, registerMission, findMission } from './game/registry.ts';
+import { CITIES, findCity, cityOf } from './game/cities.ts';
 import { loadPlugins } from './game/plugins.ts';
 import { Patrols } from './game/patrols.ts';
 import { Labels } from './labels.ts';
@@ -70,7 +71,7 @@ class Game {
 
 		if ( isPhone() ) {
 
-			boot.innerHTML = '<div class="phone"><h1>Ljubljana <span>// Unrest</span></h1>'
+			boot.innerHTML = '<div class="phone"><h1>Cordon <span class="bleu">Bleu</span></h1>'
 				+ '<p>This game can only be played on a desktop computer: it needs a mouse and a keyboard to select units and give orders.</p></div>';
 			return;
 
@@ -141,7 +142,7 @@ class Game {
 		this._input( canvas );
 
 		if ( M ) await this.load( M );
-		else this.hud.menu( MISSIONS.filter( ( mission ) => mission.menu !== false ), ( q ) => this.go( q.id ), this.plugins.failed );
+		else this.home( findCity( params.get( 'c' ) ) );
 
 		boot.classList.add( 'hide' );
 		this.renderer.setAnimationLoop( () => this.frame() );
@@ -152,7 +153,24 @@ class Game {
 	// a mission is a fresh page load: simplest way to get pristine GPU state (the plugins come along, they are loaded again)
 	go( id ) { location.search = this.query( { m: id } ); }
 
-	toMenu() { location.search = this.query(); }
+	// the landing page, or a city's missions
+	home( city ) {
+
+		const listed = MISSIONS.filter( ( mission ) => mission.menu !== false ), failed = this.plugins.failed;
+		const pick = ( q ) => this.go( q.id );
+		if ( city ) this.hud.menu( city, listed.filter( ( q ) => cityOf( q ) === city.id ), pick, () => { location.search = this.query(); }, failed );
+		else this.hud.home( listed.find( ( q ) => q.tutorial ), CITIES.map( ( c ) => ( { ...c, missions: listed.filter( ( q ) => cityOf( q ) === c.id ).length } ) ),
+			pick, ( c ) => { location.search = this.query( { c: c.id } ); }, failed );
+
+	}
+
+	// back to the mission's city, or to the landing page from training
+	toMenu() {
+
+		const c = cityOf( this.mission?.constructor );
+		location.search = this.query( c ? { c } : {} );
+
+	}
 
 	query( extra = {} ) {
 

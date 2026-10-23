@@ -1,7 +1,7 @@
 {
   "name": "ljubljana-unrest",
   "version": "1.0.0",
-  "description": "Crowd strategy game in the streets of Ljubljana (Three.js WebGPU)",
+  "description": "Cordon Bleu: crowd strategy game in the streets of real cities (Three.js WebGPU)",
   "private": true,
   "dependencies": {
     "three": "^0.186.1",

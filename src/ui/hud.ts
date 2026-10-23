@@ -255,25 +255,63 @@ export class Hud {
 
 	}
 
-	menu( missions, onPick, notes = [] ) {
+	// the landing page: the training mission, then the cities ({ id, name, country, open, missions })
+	home( training, cities, onMission, onCity, notes = [] ) {
 
 		const best = bestStars();
 		const el = this.modal( `<div class="card">
-			<h1>Ljubljana <span>// Unrest</span></h1>
-			<div class="sub">Crowd strategy in the streets of Ljubljana. Pick a mission.</div>
+			<h1>Cordon <span class="bleu">Bleu</span></h1>
+			<div class="sub">Crowd strategy on the streets of real cities. Start with training, then pick a city.</div>
 			${notes.map( ( n ) => `<p class="note">Plugin not loaded: ${esc( n )}</p>` ).join( '' )}
-			<div class="missions">${missions.map( ( M, k ) => `
+			${training ? `<div class="missions">${this.missionCard( training, best, 0 )}</div>` : ''}
+			<h3>Cities</h3>
+			<div class="missions cities">${cities.map( ( c, k ) => `
+				<button class="mcard city" data-c="${k}"${c.open ? '' : ' disabled'}>
+					<div class="row"><span class="t">${esc( c.name )}</span>${c.open ? '' : '<span class="side soon">soon</span>'}</div>
+					<div class="s">${esc( c.country )}</div>
+					<div class="count">${c.open ? `${c.missions} mission${c.missions === 1 ? '' : 's'}` : 'In preparation'}</div>
+				</button>` ).join( '' )}
+			</div>
+			${this.footer()}
+		</div>` );
+		el.querySelector<HTMLElement>( '.mcard[data-k]' )?.addEventListener( 'click', () => onMission( training ) );
+		el.querySelectorAll<HTMLElement>( '.mcard[data-c]' ).forEach( ( b ) => b.onclick = () => onCity( cities[ + b.dataset.c ] ) );
+
+	}
+
+	// one city's missions
+	menu( city, missions, onPick, onBack, notes = [] ) {
+
+		const best = bestStars();
+		const el = this.modal( `<div class="card">
+			<h1>Cordon <span class="bleu">Bleu</span> <span>// ${esc( city.name )}</span></h1>
+			<div class="sub">Crowd strategy in the streets of ${esc( city.name )}. Pick a mission.</div>
+			${notes.map( ( n ) => `<p class="note">Plugin not loaded: ${esc( n )}</p>` ).join( '' )}
+			<div class="missions">${missions.map( ( M, k ) => this.missionCard( M, best, k ) ).join( '' )}</div>
+			<div class="go"><button id="mBack">Cities</button></div>
+			${this.footer()}
+		</div>` );
+		el.querySelectorAll<HTMLElement>( '.mcard' ).forEach( ( b ) => b.onclick = () => onPick( missions[ + b.dataset.k ] ) );
+		el.querySelector<HTMLElement>( '#mBack' ).onclick = onBack;
+
+	}
+
+	missionCard( M, best, k ) {
+
+		return `
 				<button class="mcard" data-k="${k}">
 					<div class="row"><span class="t">${esc( M.title )}</span>${M.tutorial
 		? `<span class="side tutorial">${best[ M.id ] ? 'tutorial' : 'start here'}</span>` : `<span class="side ${M.side}">${M.side}</span>`}</div>
 					<div class="s">${esc( M.subtitle )}</div>
 					<div class="stars">${starStr( best[ M.id ] ?? 0 )}</div>
-				</button>` ).join( '' )}
-			</div>
-			<p class="hint" style="margin-top:14px">Drag to pan · wheel to zoom · Space to pause · the city is real: map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, buildings © GURS, stops © LPP.</p>
-			<p class="credit">© 2026 Virostatiq // <a href="https://bloki.si" target="_blank" rel="noopener">bloki.si</a> // <a href="https://github.com/virostatiq/ljubljana-unrest" target="_blank" rel="noopener">GitHub</a></p>
-		</div>` );
-		el.querySelectorAll<HTMLElement>( '.mcard' ).forEach( ( b ) => b.onclick = () => onPick( missions[ + b.dataset.k ] ) );
+				</button>`;
+
+	}
+
+	footer() {
+
+		return `<p class="hint" style="margin-top:14px">Drag to pan · wheel to zoom · Space to pause · the cities are real: map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>; Ljubljana buildings © GURS, stops © LPP.</p>
+			<p class="credit">© 2026 Virostatiq // <a href="https://bloki.si" target="_blank" rel="noopener">bloki.si</a> // <a href="https://github.com/virostatiq/ljubljana-unrest" target="_blank" rel="noopener">GitHub</a></p>`;
 
 	}
 

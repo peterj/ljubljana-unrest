@@ -1,13 +1,14 @@
-# Ljubljana // Unrest
+# Cordon Bleu
 
-A real-time crowd strategy game set in the streets of central Ljubljana. Twelve standalone missions
-of 10–20 minutes put you in command of police squads or protest groups: escort a VIP convoy to the
-National Assembly, keep a march and a counter-protest apart, carry a banner to the Palace of Justice,
-get a dissident speaker out of a kettled square. Every mission has its own win and lose conditions and
-a one-to-three-star score, and public opinion and an escalation ladder (force, tear gas, water cannon,
-firearms) make every heavy-handed order cost something.
+A real-time crowd strategy game set in the streets of real cities, starting with central Ljubljana
+(Belgrade and Paris are in preparation). Twelve standalone missions of 10–20 minutes put you in command
+of police squads or protest groups: escort a VIP convoy to the National Assembly, keep a march and a
+counter-protest apart, carry a banner to the Palace of Justice, get a dissident speaker out of a
+kettled square. Every mission has its own win and lose conditions and a one-to-three-star score, and
+public opinion and an escalation ladder (force, tear gas, water cannon, firearms) make every
+heavy-handed order cost something.
 
-The city is real: buildings, streets, squares, the river, bus stops and CCTV cameras come from open
+The cities are real: buildings, streets, squares, the river, bus stops and CCTV cameras come from open
 data. Thousands of people are simulated individually on the GPU. Each one is autonomous, but follows
 its group's leader and reacts to crowd density, injuries, gas and police lines. Violence is abstract
 (dots and counters), the tone serious.
