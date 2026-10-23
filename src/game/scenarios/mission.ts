@@ -136,8 +136,6 @@ export function scenarioMission( value ) {
 			operation.settled.then( ( outcome: any ) => {
 
 				this.escalation = this.runtime.commands.escalation;
-				if ( outcome.status === 'completed' && id === 'gas' ) { this.counters.gas ++; this.nudgeOpinion( this.gasOpinion, 'tear gas' ); }
-				if ( outcome.status === 'completed' && id === 'water' ) this.nudgeOpinion( this.waterOpinion, 'water cannon' );
 				if ( outcome.status === 'rejected' ) this.event( `${command.label}: ${outcome.code.toLowerCase().replaceAll( '_', ' ' )}`, 'warn', [ x, y ] );
 
 			} );

@@ -701,7 +701,7 @@ class Game {
 			}
 
 			const c = this.mission.commands().find( ( q ) => q.key === k );
-			if ( ! c?.run ) { if ( this.mission.constructor.sdkScenario ) this.emit( 'key', { key: k } ); return; }
+			if ( ! c?.run ) { if ( this.mission.constructor.sdkScenario ) this.emit( 'key', { key: k, at: [ this.mouse.x, this.mouse.y ] } ); return; }
 			// keyboard: targeted commands fire at the cursor right away (the water cannon is aimed with the mouse)
 			if ( c.run.length === 0 || c.aim ) { this.command( k ); return; }
 			this.armed = k;

@@ -175,6 +175,7 @@ export class MovementHost {
 			const actor = sample.actors.find( ( entry ) => entry.handle === order.actor );
 			if ( ! actor?.center || Math.hypot( actor.center[ 0 ] - order.target[ 0 ], actor.center[ 1 ] - order.target[ 1 ] ) > order.radius ) continue;
 			this.orders.delete( order.actor.id );
+			this.runtime.adapter.settleMove?.( order.backend );
 			this.runtime.event( 'movement.arrived', { actor: order.actor, at: order.target, owner: order.owner.id,
 				source: order.owner === this.player ? 'player' : 'behavior' } );
 

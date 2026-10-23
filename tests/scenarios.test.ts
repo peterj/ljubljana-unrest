@@ -13,6 +13,7 @@ import { scenarioMission } from '../src/game/scenarios/mission.ts';
 import { defineBehavior, defineOutcome, defineScenario, escortConvoy, holdCrowd, place, preventClash, survive } from '../src/game/scenarios/definition.ts';
 import { ScenarioRuntime } from '../src/game/scenarios/runtime.ts';
 import { followRoute } from '../src/game/scenarios/route.ts';
+import { SpatialHost } from '../src/game/scenarios/spatial.ts';
 
 function scenario( overrides = {} ) {
 
@@ -108,7 +109,19 @@ test( 'definitions detach configuration and reject unsupported or malformed valu
 	const charge = { kind: 'police-command', id: 'charge', resource: null };
 	assert.throws( () => scenario( { commands: [ charge ], initiallyLockedCommands: [ 'gas' ] } ), /declared command IDs/ );
 	assert.throws( () => scenario( { commands: [ charge ], initiallyLockedCommands: [ 'charge', 'charge' ] } ), /IDs must be unique/ );
-	assert.throws( () => scenario( { side: 'protest', commands: [ charge ] } ), /police commands are unavailable/ );
+	assert.equal( scenario( { side: 'protest', commands: [ charge ] } ).commands.length, 1 );
+
+} );
+
+test( 'spatial road spans validate host endpoints and return an immutable measured width', () => {
+
+	const calls = [], spatial = new SpatialHost( { location: ( at ) => at === 'street' ? [ 10, 20 ] : at,
+		adapter: { roadSpan: ( at, distance ) => { calls.push( [ at, distance ] ); return [ [ 4, 20 ], [ 16, 20 ] ]; } } } );
+	const span = spatial.roadSpan( 'street', 16 );
+	assert.deepEqual( calls, [ [ [ 10, 20 ], 16 ] ] );
+	assert.deepEqual( span, { a: [ 4, 20 ], b: [ 16, 20 ], width: 12 } );
+	assert.equal( Object.isFrozen( span ), true ); assert.equal( Object.isFrozen( span.a ), true );
+	assert.throws( () => spatial.roadSpan( 'street', 0 ), /maxDistance/ );
 
 } );
 
@@ -117,6 +130,7 @@ test( 'crowd-hold objective matches Rally cumulative occupancy, pauses below thr
 	const definition = scenario( { objectives: [ holdCrowd( { id: 'square', at: 'square', radius: 60, minimumPeople: 6,
 		holdSeconds: 3, timeoutSeconds: 10 } ) ] } );
 	const { runtime } = fixture( definition );
+	assert.equal( runtime.phase(), '0:10 left' );
 	runtime.locations.set( 'square', [ 0, 0 ] );
 	const handle = { id: 'protest', kind: 'crowd', run: runtime.run };
 	runtime.actors.set( handle.id, { handle, backend: [] } );
@@ -176,7 +190,8 @@ test( 'protest-side scenarios route selected crowd movement through the SDK with
 	const definition = scenario( { side: 'protest' } ), ScenarioMission = scenarioMission( definition );
 	const group = { id: 7 }, crowd = { id: 'crowd-1', kind: 'crowd', run: 1 }, moves = [], actions = [];
 	const runtime = { state: 'running', actors: new Map( [ [ crowd.id, { handle: crowd, backend: [ group ] } ] ] ),
-		commands: { list: () => [] }, playerMove: ( ...args ) => moves.push( args ), playerAction: ( action ) => actions.push( action ) };
+		commands: { list: () => [ { id: 'gas', key: 'g', label: 'Gas', needsSelection: false } ] },
+		playerMove: ( ...args ) => moves.push( args ), playerAction: ( action ) => actions.push( action ) };
 	const mission = Object.assign( Object.create( ScenarioMission.prototype ), { runtime, game: { selected: [ group ] } } );
 	assert.equal( mission.onPlayerMovement( { type: 'line', units: [ group ], a: [ 0, 0 ], at: [ 10, 20 ] } ), true );
 	assert.deepEqual( moves, [ [ crowd, [ 10, 20 ], {} ] ] );
@@ -695,18 +710,21 @@ test( 'crowd spawning validates and detaches explicit wave attributes without ch
 
 } );
 
-test( 'vehicle spawning exposes only transport and water-cannon capabilities', async () => {
+test( 'vehicle spawning validates transport, water-cannon, and static police capabilities', async () => {
 
 	let handles;
 	const { runtime, spawns } = fixture( scenario( { setup( ctx ) {
 
 		ctx.spawn.vehicle( { id: 'truck', at: 'square', type: 'water-cannon' } );
+		ctx.spawn.vehicle( { id: 'roadblock', at: 'square', type: 'police-patrol', crew: 0, selectable: false } );
 		assert.throws( () => ctx.spawn.vehicle( { id: 'invalid', at: 'square', type: 'combat' } ), /transport, water-cannon/ );
+		assert.throws( () => ctx.spawn.vehicle( { id: 'invalid-selectable', at: 'square', selectable: 'no' as any } ), /spawn.selectable/ );
 		handles = ctx.actors;
 
 	} } ) );
 	await runtime.setup();
 	assert.equal( spawns[ 0 ].options.type, 'water-cannon' );
+	assert.equal( spawns[ 1 ].options.crew, 0 ); assert.equal( spawns[ 1 ].options.selectable, false );
 	assert.equal( runtime.actors.get( 'truck' ).type, 'water-cannon' );
 	assert.equal( handles.resolve( 'truck' ).kind, 'vehicle' );
 	runtime.dispose();

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { World } from '../src/sim/world.ts';
 import { Crowd, FACTION, MODE, MAX_EDITS } from '../src/sim/crowd.ts';
 import { ScenarioEngine } from '../src/game/scenarios/engine.ts';
+import { MovementHost } from '../src/game/scenarios/movement.ts';
 import { Mission } from '../src/game/mission.ts';
 
 function worldFixture() {
@@ -63,6 +64,35 @@ test( 'scenario navigation retains and releases prepared fields without allocati
 	adapter.releaseMove( prepared );
 	assert.deepEqual( references, [ [ 'retain', 7 ], [ 'release', 7 ] ] );
 	assert.equal( calls[ 0 ][ 2 ].layer, 7 );
+
+} );
+
+test( 'arrived SDK police formations settle onto the shared pinned field but active commands keep their field', () => {
+
+	const shared = [], idleHandle = { id: 'idle', kind: 'squad', run: 1 }, busyHandle = { id: 'busy', kind: 'squad', run: 1 };
+	const idle = { id: 1, members: [ 1, 2 ], faction: FACTION.POLICE, mode: MODE.FORMATION, center: [ 10, 20 ], anchor: [ 10, 20 ], layer: 3 };
+	const busy = { id: 2, members: [ 3, 4 ], faction: FACTION.POLICE, mode: MODE.FORMATION, center: [ 10, 20 ], anchor: [ 10, 20 ], layer: 4 };
+	const runtime: any = { actors: new Map( [ [ 'idle', { handle: idleHandle, backend: [ idle ] } ], [ 'busy', { handle: busyHandle, backend: [ busy ] } ] ] ),
+		commands: { claims: new Map( [ [ busyHandle, {} ] ] ) }, movement: { orders: new Map() } };
+	const world = { exitLayer: 9, setLayer: ( group, layer ) => { shared.push( [ group.id, layer ] ); group.layer = layer; } };
+	const adapter = new ScenarioEngine( { world, runtime } );
+	adapter.settleMove( [ idle, busy, { faction: FACTION.PROTESTER, mode: MODE.HOLD, center: [ 0, 0 ], anchor: [ 0, 0 ] } ] );
+	assert.deepEqual( shared, [ [ 1, 9 ] ] );
+	assert.equal( idle.layer, 9 ); assert.equal( busy.layer, 4 );
+
+} );
+
+test( 'movement arrival invokes adapter field settlement after removing the completed order', () => {
+
+	const settled = [], events = [], handle = { id: 'squad', kind: 'squad', run: 1 }, backend = [ { id: 1 } ];
+	const runtime: any = { state: 'running', time: 4, step: 2, operations: new Set(), nextOperation: 1,
+		adapter: { settleMove: ( groups ) => settled.push( groups ) }, event: ( type, event ) => events.push( { type, ...event } ) };
+	const host = new MovementHost( runtime ), owner = { id: 'player' };
+	host.orders.set( handle.id, { actor: handle, owner, target: [ 10, 20 ], radius: 8, installed: true, installedStep: 1, backend } );
+	host.observe( { step: 2, actors: [ { handle, center: [ 10, 20 ] } ] } );
+	assert.deepEqual( settled, [ backend ] );
+	assert.equal( host.orders.has( handle.id ), false );
+	assert.equal( events[ 0 ].type, 'movement.arrived' );
 
 } );
 

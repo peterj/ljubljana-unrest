@@ -135,6 +135,7 @@ export class ScenarioRuntime {
 					return value ? point( value, 'spatial.walkable' ) : null;
 
 				},
+				roadSpan: ( at, maxDistance = 30 ) => this.spatial.roadSpan( at, maxDistance ),
 				clearance: ( at ) => {
 
 					const value = this.adapter.clearance( this.location( at ) );
@@ -314,7 +315,7 @@ export class ScenarioRuntime {
 	spawn( kind, options, owner = null ) {
 
 		this.writable();
-		fields( options, kind === 'vehicle' ? [ 'id', 'at', 'capacity', 'label', 'type', 'crew' ] : kind === 'crowd'
+		fields( options, kind === 'vehicle' ? [ 'id', 'at', 'capacity', 'label', 'type', 'crew', 'selectable' ] : kind === 'crowd'
 			? [ 'id', 'at', 'people', 'spread', 'label', 'groupSize', 'agitation', 'resolve', 'morale', 'bikes', 'goal', 'goalRadius', 'mode', 'faction', 'points' ]
 			: kind === 'bystanders' ? [ 'id', 'people', 'destinations', 'groupSize', 'spread' ] : [ 'id', 'at', 'people', 'spread' ], `spawn.${kind}` );
 		check( typeof options.id === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test( options.id ), 'spawn.id', 'must be a lowercase slug' );
@@ -331,8 +332,9 @@ export class ScenarioRuntime {
 			check( Number.isInteger( capacity ) && capacity > 0 && capacity <= 8, 'spawn.capacity', 'must be an integer from 1 to 8' );
 			check( options.label === undefined || ( typeof options.label === 'string' && options.label.trim() !== '' ), 'spawn.label', 'must be non-empty text' );
 			check( [ 'transport', 'water-cannon', 'police-patrol', 'prisoner-van' ].includes( vehicleType ), 'spawn.type', 'must be transport, water-cannon, police-patrol or prisoner-van' );
-			check( vehicleType === 'police-patrol' ? Number.isInteger( vehicleCrew ) && vehicleCrew > 0 && vehicleCrew <= 16 : options.crew === undefined,
-				'spawn.crew', 'is available only for police-patrol vehicles and must be from 1 to 16' );
+			check( vehicleType === 'police-patrol' ? Number.isInteger( vehicleCrew ) && vehicleCrew >= 0 && vehicleCrew <= 16 : options.crew === undefined,
+				'spawn.crew', 'is available only for police-patrol vehicles and must be from 0 to 16' );
+			check( options.selectable === undefined || typeof options.selectable === 'boolean', 'spawn.selectable', 'must be a boolean' );
 
 		}
 		const at = kind === 'bystanders' ? null : this.location( options.at );
@@ -417,7 +419,8 @@ export class ScenarioRuntime {
 		Promise.resolve().then( () => {
 
 			if ( done ) return;
-			return this.adapter.spawn( kind, Object.freeze( { id: options.id, at, people, spread, capacity, type: vehicleType, crew: vehicleCrew, label: options.label, ...crowdOptions } ), controller.signal );
+			return this.adapter.spawn( kind, Object.freeze( { id: options.id, at, people, spread, capacity, type: vehicleType, crew: vehicleCrew,
+				selectable: options.selectable, label: options.label, ...crowdOptions } ), controller.signal );
 
 		} ).then( ( backend ) => {
 
@@ -598,7 +601,8 @@ export class ScenarioRuntime {
 	phase() {
 
 		const objective = this.definition.objectives[ 0 ];
-		const fallback = `${formatTime( objective.seconds - this.time )} left`;
+		const duration = objective.kind === 'hold-crowd' ? objective.timeoutSeconds : objective.seconds;
+		const fallback = `${formatTime( duration - this.time )} left`;
 		if ( ! this.definition.phase ) return fallback;
 		try {
 

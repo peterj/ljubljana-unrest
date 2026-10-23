@@ -27,6 +27,7 @@ export class ScenarioEngine {
 	place( name ) { return this.mission.world.places[ name ]; }
 	landmark( name ) { return this.mission.world.marks[ name ]; }
 	walkable( at, radius ) { return this.mission.world.roadSpot( ...at, radius ); }
+	roadSpan( at, maxDistance ) { return this.mission.world.across( ...at, maxDistance ); }
 	clearance( at ) { return this.mission.world.sdf( ...at ); }
 	entries() { return ( this.mission.city.entries ?? [] ).map( ( entry ) => ( { name: entry.name, position: entry.pos } ) ); }
 	notice( text, kind, at ) { this.mission.event( text, kind, at ); }
@@ -99,6 +100,18 @@ export class ScenarioEngine {
 
 	}
 
+	commandApplied( request ) {
+
+		const delta = request.opinion?.delta, reason = request.opinion?.reason;
+		if ( request.id === 'gas' ) {
+
+			this.mission.counters.gas ++;
+			this.mission.nudgeOpinion( delta ?? this.mission.gasOpinion ?? - 2, reason ?? 'tear gas' );
+
+		} else if ( request.id === 'water' ) this.mission.nudgeOpinion( delta ?? this.mission.waterOpinion ?? - 2, reason ?? 'water cannon' );
+
+	}
+
 	setCrowdMode( groups, mode ) {
 
 		if ( groups.some( ( group ) => ! [ FACTION.PROTESTER, FACTION.BYSTANDER, FACTION.COUNTER ].includes( group.faction ) ) ) return { status: 'rejected', code: 'FACTION' };
@@ -160,7 +173,8 @@ export class ScenarioEngine {
 			const water = options.type === 'water-cannon', van = options.type === 'prisoner-van';
 			const patrol = options.type === 'police-patrol', crew = patrol ? options.crew : 0;
 			check( crowd.count + crew <= crowd.N && world.groups.length + Number( crew > 0 ) <= crowd.G, 'spawn.vehicle.crew', 'crew capacity exceeded' );
-			return world.patrols.add( { at, label: options.label ?? options.id, crew, selectable: water || patrol, civil: ! water && ! patrol && ! van, water, random } );
+			return world.patrols.add( { at, label: options.label ?? options.id, crew, selectable: options.selectable ?? ( water || patrol ),
+				civil: ! water && ! patrol && ! van, water, random } );
 
 		}
 		if ( kind === 'bystanders' ) return this.allocateBystanders( options, signal );
@@ -358,6 +372,22 @@ export class ScenarioEngine {
 	}
 
 	releaseMove( prepared ) { this.mission.world.flow.release( prepared.layer ); }
+
+	settleMove( groups ) {
+
+		const { world, runtime } = this.mission, layer = world.exitLayer;
+		if ( layer === undefined || ! runtime ) return;
+		for ( const group of groups ) {
+
+			if ( group.faction !== FACTION.POLICE || group.mode !== MODE.FORMATION || ! group.center || ! group.anchor
+				|| Math.hypot( group.center[ 0 ] - group.anchor[ 0 ], group.center[ 1 ] - group.anchor[ 1 ] ) > 25 ) continue;
+			const record = [ ...runtime.actors.values() ].find( ( actor ) => actor.handle.kind === 'squad' && actor.backend?.includes( group ) );
+			if ( ! record || runtime.commands.claims.has( record.handle ) || runtime.movement.orders.has( record.handle.id ) ) continue;
+			world.setLayer( group, layer );
+
+		}
+
+	}
 
 	stopMove( groups ) {
 
