@@ -628,6 +628,24 @@ export interface CrowdSpawnOptions extends SpawnOptions {
     faction?: 'protester' | 'bystander' | 'counter';
     /** Exact placement, one point per person in group order; required for `sit`, ignores spread and bikes. */
     points?: readonly Point[];
+    /** How the crowd faces police lines across its way; protesters and counter-protesters only. */
+    standoff?: StandoffOptions;
+}
+
+/**
+ * A crowd blocked by a cordon climbs a ladder instead of walking into the shields: 1 stands about 10 m short of the
+ * line (and gets restless a minute after reaching it), 2 sends small groups to probe the line, 3 leans on it, 4 storms
+ * one point while its leaders throw firecrackers. Police action nearby, or its people hurt or arrested by police,
+ * steps it up; 90 s without either calms it a level. Without options the level starts from the crowd's agitation,
+ * and the ceiling is 3.
+ */
+export interface StandoffOptions {
+    /** Level the crowd starts at, 1 to 4; at most the ceiling. Defaults to one from its agitation. */
+    level?: 1 | 2 | 3 | 4;
+    /** Highest level it can reach, 1 to 4; default 3 (only 4 throws firecrackers). */
+    ceiling?: 1 | 2 | 3 | 4;
+    /** Also step up when one of its people takes a blow next to an officer, not only on injury or arrest; default false. */
+    blows?: boolean;
 }
 
 /** Scattered passive onlookers that migrate among declared destinations. */

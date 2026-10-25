@@ -199,6 +199,14 @@ export class ScenarioEngine {
 						mode, agitation: options.agitation, resolve: options.resolve,
 						morale: options.morale, bikes: options.bikes, random, faction } );
 			signal.throwIfAborted();
+			const S = options.standoff;
+			if ( S ) for ( const group of groups ) {
+
+				if ( S.level !== null ) group.heatStart = S.level;
+				if ( S.ceiling !== null ) group.ceiling = S.ceiling;
+				group.touchy = S.blows;
+
+			}
 			if ( options.mode === 'sit' ) {
 
 				this.sittingActors.add( options.id );
@@ -252,7 +260,9 @@ export class ScenarioEngine {
 
 		if ( groups.isCar ) return { alive: groups.alive, center: [ groups.x, groups.y ] };
 		let alive = 0, sumX = 0, sumY = 0;
-		for ( const group of groups ) for ( const member of group.members ) {
+		// a probe out at a police line (Standoff) is still part of its crowd
+		const all = groups.flatMap( ( group ) => group.standoff?.probe ? [ group, group.standoff.probeGroup ] : [ group ] );
+		for ( const group of all ) for ( const member of group.members ) {
 
 			const faction = sample.faction( member );
 			if ( ! Number.isFinite( faction ) ) return null;
@@ -580,7 +590,7 @@ export class ScenarioEngine {
 			},
 			actorOf: ( index ) => {
 
-				const group = world.groups[ world.intel.group( index ) ];
+				const seen = world.groups[ world.intel.group( index ) ], group = seen?.probeOf ?? seen; // a probe belongs to its crowd
 				return [ ...runtime.actors.values() ].find( ( record ) => Array.isArray( record.backend ) && record.backend.includes( group ) )?.handle.id ?? null;
 
 			},

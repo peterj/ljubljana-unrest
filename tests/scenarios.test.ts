@@ -4,7 +4,8 @@ import defenseScenario from '../examples/defense-scenario.ts';
 import governmentScenario from '../examples/government-scenario.ts';
 import clashScenario from '../examples/clash-scenario.ts';
 import trainingScenario from '../examples/training-scenario.ts';
-import { ClashMission } from '../src/game/missions/clash.ts';
+import { ClashMission, clashScenario as clashMission } from '../src/game/missions/clash.ts';
+import * as sdk from '../src/game/scenarios/index.ts';
 import { RallyMission } from '../src/game/missions/rally.ts';
 import { STAT } from '../src/sim/crowd.ts';
 import { advanceClash } from '../src/game/scenarios/clash.ts';
@@ -201,19 +202,40 @@ test( 'protest-side scenarios route selected crowd movement through the SDK with
 
 } );
 
-test( 'per-step clash pressure matches the unchanged native mission formula', () => {
+test( 'per-step clash pressure keeps the native mission formula', () => {
 
-	const native = { march: [], t: 0, stats: new Uint32Array( 48 ), clash: 0, duration: 720, flags: {},
-		world: { groupsOf: () => [], intel: null }, event() {}, end() {} };
-	let pressure = 0;
+	// the formula of the native Clash mission before it moved to the SDK: rises with contacts (capped), decays without
+	let native = 0, pressure = 0;
 	for ( const [ contacts, dt ] of [ [ 1, 0.25 ], [ 600, 0.25 ], [ 2400, 0.5 ], [ 0, 1 ], [ 0, 2 ], [ 4000, 0.25 ] ] ) {
 
-		native.t += dt; native.stats[ STAT.CLASH ] = contacts;
-		ClashMission.prototype.tick.call( native, dt );
+		native = Math.max( 0, Math.min( 1, native + ( contacts > 0 ? Math.min( 0.028, contacts / 2400 ) : - 0.012 ) * dt ) );
 		pressure = advanceClash( pressure, contacts, dt );
-		assert.equal( pressure, native.clash );
+		assert.equal( pressure, native );
 
 	}
+
+} );
+
+test( 'Clash: a calm rally on Trg republike, a fired-up counter-protest on Kongresni trg, cordons between', async () => {
+
+	assert.equal( ClashMission.id, 'clash' );
+	assert.equal( ( ClashMission as any ).sdkScenario, true );
+	const { runtime, spawns } = fixture( clashMission( sdk as any ) as any, { landmark: () => [ 30, 40 ] } );
+	await runtime.setup();
+	const crowds = spawns.filter( ( s ) => s.kind === 'crowd' ), squads = spawns.filter( ( s ) => s.kind === 'squad' );
+	const rally = crowds.find( ( s ) => s.options.id === 'rally' ), counters = crowds.filter( ( s ) => s.options.id.startsWith( 'counter-' ) );
+	assert.equal( rally.options.mode, 'hold' );
+	assert.equal( rally.options.standoff, null );
+	assert.ok( rally.options.agitation[ 1 ] < 0.2 );
+	assert.equal( counters.length, 15 );
+	for ( const c of counters ) {
+
+		assert.equal( c.options.faction, 'counter' );
+		assert.deepEqual( c.options.standoff, { level: 2, ceiling: 4, blows: true } );
+
+	}
+	assert.equal( squads.filter( ( s ) => s.options.id.startsWith( 'cordon-' ) ).length, 4 );
+	runtime.dispose();
 
 } );
 
@@ -706,6 +728,27 @@ test( 'crowd spawning validates and detaches explicit wave attributes without ch
 	await runtime.setup();
 	assert.equal( spawns[ 0 ].options.mode, 'march' ); assert.equal( spawns[ 0 ].options.groupSize, 100 );
 	assert.deepEqual( spawns[ 0 ].options.agitation, [ 0.5, 0.8 ] ); assert.equal( spawns[ 0 ].options.label, 'Arrivals' );
+	runtime.dispose();
+
+} );
+
+test( 'crowd standoff options are validated and passed on frozen; without them the crowd has none', async () => {
+
+	const { runtime, spawns } = fixture( scenario( { setup( ctx ) {
+
+		ctx.spawn.crowd( { id: 'counter', at: 'square', faction: 'counter', standoff: { level: 2, ceiling: 4, blows: true } } );
+		ctx.spawn.crowd( { id: 'rally', at: 'square' } );
+		assert.throws( () => ctx.spawn.crowd( { id: 'bad-level', at: 'square', standoff: { level: 5 as any } } ), /spawn.standoff.level/ );
+		assert.throws( () => ctx.spawn.crowd( { id: 'above', at: 'square', standoff: { level: 4, ceiling: 2 } } ), /above the ceiling/ );
+		assert.throws( () => ctx.spawn.crowd( { id: 'unknown', at: 'square', standoff: { anger: 1 } as any } ), /unsupported field/ );
+		assert.throws( () => ctx.spawn.crowd( { id: 'blows', at: 'square', standoff: { blows: 'yes' as any } } ), /spawn.standoff.blows/ );
+		assert.throws( () => ctx.spawn.crowd( { id: 'onlookers', at: 'square', faction: 'bystander', standoff: {} } ), /bystanders/ );
+
+	} } ) );
+	await runtime.setup();
+	assert.deepEqual( spawns[ 0 ].options.standoff, { level: 2, ceiling: 4, blows: true } );
+	assert.equal( Object.isFrozen( spawns[ 0 ].options.standoff ), true );
+	assert.equal( spawns[ 1 ].options.standoff, null );
 	runtime.dispose();
 
 } );

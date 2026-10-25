@@ -316,7 +316,7 @@ export class ScenarioRuntime {
 
 		this.writable();
 		fields( options, kind === 'vehicle' ? [ 'id', 'at', 'capacity', 'label', 'type', 'crew', 'selectable' ] : kind === 'crowd'
-			? [ 'id', 'at', 'people', 'spread', 'label', 'groupSize', 'agitation', 'resolve', 'morale', 'bikes', 'goal', 'goalRadius', 'mode', 'faction', 'points' ]
+			? [ 'id', 'at', 'people', 'spread', 'label', 'groupSize', 'agitation', 'resolve', 'morale', 'bikes', 'goal', 'goalRadius', 'mode', 'faction', 'points', 'standoff' ]
 			: kind === 'bystanders' ? [ 'id', 'people', 'destinations', 'groupSize', 'spread' ] : [ 'id', 'at', 'people', 'spread' ], `spawn.${kind}` );
 		check( typeof options.id === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test( options.id ), 'spawn.id', 'must be a lowercase slug' );
 		check( ! this.actors.has( options.id ), 'spawn.id', `'${options.id}' is already allocated` );
@@ -359,7 +359,20 @@ export class ScenarioRuntime {
 			check( mode !== 'march' || goal !== null, 'spawn.goal', 'march mode requires a destination' );
 			check( [ 'protester', 'bystander', 'counter' ].includes( faction ), 'spawn.faction', 'must be a civilian faction' );
 			check( options.label === undefined || ( typeof options.label === 'string' && options.label.trim() !== '' ), 'spawn.label', 'must be non-empty text' );
-			crowdOptions = { groupSize, agitation: Object.freeze( [ ...agitation ] ), resolve: Object.freeze( [ ...resolve ] ), morale, bikes, goal, goalRadius, mode, faction, points };
+			// how the crowd faces police lines that block it (Standoff): starting level, ceiling, provoked by blows
+			let standoff = null;
+			if ( options.standoff !== undefined ) {
+
+				fields( options.standoff, [ 'level', 'ceiling', 'blows' ], 'spawn.standoff' );
+				const { level, ceiling, blows = false } = options.standoff;
+				for ( const [ key, value ] of [ [ 'level', level ], [ 'ceiling', ceiling ] ] ) check( value === undefined || ( Number.isInteger( value ) && value >= 1 && value <= 4 ), `spawn.standoff.${key}`, 'must be an integer from 1 to 4' );
+				check( level === undefined || ceiling === undefined || level <= ceiling, 'spawn.standoff.level', 'must not be above the ceiling' );
+				check( typeof blows === 'boolean', 'spawn.standoff.blows', 'must be a boolean' );
+				check( faction !== 'bystander', 'spawn.standoff', 'bystanders do not face police lines' );
+				standoff = Object.freeze( { level: level ?? null, ceiling: ceiling ?? null, blows } );
+
+			}
+			crowdOptions = { groupSize, agitation: Object.freeze( [ ...agitation ] ), resolve: Object.freeze( [ ...resolve ] ), morale, bikes, goal, goalRadius, mode, faction, points, standoff };
 
 		} else if ( kind === 'bystanders' ) {
 

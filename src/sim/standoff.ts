@@ -8,8 +8,9 @@
 //            near a blast flinch (crowd.ts: shields down, half the push) — snatch the leader to stop them
 // Police action close by (World.provoke: charges, kettles, arrests, snatches, gas, water, shield pushes, shots) and
 // the group's own people hurt or arrested by police each step it up, at most once per PROVOKE_GAP s; COOL s without
-// any and it drops a level. Agitation only sets the level a group starts at: a crowd squeezed through a narrow street
-// gets agitated, and that must not send it at the shields. Each kind of group has a
+// any and it drops a level. A touchy group (g.touchy) is also provoked by blows: one of its people hit while next to
+// an officer. Agitation only sets the level a group starts at (unless the mission sets g.heatStart): a crowd squeezed
+// through a narrow street gets agitated, and that must not send it at the shields. Each kind of group has a
 // ceiling (CEILING, or g.ceiling set by the mission): peaceful marches never get past 3, militants can reach 4.
 // A mission's own PUSH / STORM order counts as that level, and the ladder hands a group back the moment the mission
 // gives it any other mode (hold, riot, sit, disperse …). Runs on every intel readback (update) and every sim step (step).
@@ -21,6 +22,8 @@ export const HEAT = { CALM: 1, PROBE: 2, BREACH: 3, PYRO: 4 };
 export const STANDOFF_GAP = 10, WAIT = 60, COOL = 90;
 // police action within this of a group (m, plus the group's own spread) provokes it, at most once per PROVOKE_GAP s
 export const PROVOKE_R = 40, PROVOKE_GAP = 10;
+// a blow (touchy groups): health lost since the last readback, by someone within BLOW_R of an officer (m)
+export const BLOW = 0.002, BLOW_R = 1.6;
 // a line blocks a group heading through it within BLOCK_REACH of its front (m), one it merely stands near within
 // BLOCK_NEAR (no known heading); it lets go BLOCK_SLACK further out. A group heading through the line that comes within
 // QUEUE_REACH of a group standing off at it queues behind it however far back (a long march does not press into the
@@ -120,6 +123,7 @@ export class Standoff {
 		if ( ! I ) return [];
 		const out = [], acts = this.acts.splice( 0 );
 		const lines = [ ...new Set( W.groups.filter( ( q ) => q.cordon && q.alive > 0 ).map( ( q ) => q.cordon ) ) ];
+		let police = null; // officers on a 4 m grid, built when a touchy group needs it
 		for ( const g of W.groups ) {
 
 			if ( ( g.faction !== FACTION.PROTESTER && g.faction !== FACTION.COUNTER ) || g.probeOf ) continue;
@@ -128,8 +132,10 @@ export class Standoff {
 			this.heatOf( g, I );
 
 			// police action close by, or our own people hurt or arrested by police
-			const hurt = this.hurt( g, I ), hit = hurt > g.hurt;
+			const hurt = this.hurt( g, I );
+			let hit = hurt > g.hurt;
 			g.hurt = hurt;
+			if ( g.touchy ) { police ??= this.officers( I ); hit = this.blows( g, I, police ) || hit; }
 			const R = PROVOKE_R + Math.sqrt( g.alive ) * 0.9;
 			if ( hit || acts.some( ( a ) => Math.hypot( a.x - g.center[ 0 ], a.y - g.center[ 1 ] ) < R ) ) {
 
@@ -166,7 +172,7 @@ export class Standoff {
 
 		if ( g.heat !== undefined ) return g.heat;
 		g.ceiling ??= ceilingOf( g.kind );
-		g.heat = Math.min( g.ceiling, levelOf( g.agitation ?? 0 ) );
+		g.heat = Math.min( g.ceiling, g.heatStart ?? levelOf( g.agitation ?? 0 ) );
 		g.heatAt = this.t;
 		g.provokedAt = g.steppedAt = - Infinity;
 		g.hurt = this.hurt( g, I );
@@ -186,6 +192,49 @@ export class Standoff {
 		}
 
 		return n;
+
+	}
+
+	// officers on their feet, by 4 m cell
+	officers( I ) {
+
+		const grid = new Map();
+		for ( let i = 0; i < I.st.length / 4; i ++ ) {
+
+			if ( I.st[ i * 4 ] !== FACTION.POLICE ) continue;
+			const k = `${Math.floor( I.pos[ i * 2 ] / 4 )}:${Math.floor( I.pos[ i * 2 + 1 ] / 4 )}`;
+			if ( ! grid.has( k ) ) grid.set( k, [] );
+			grid.get( k ).push( I.pos[ i * 2 ], I.pos[ i * 2 + 1 ] );
+
+		}
+
+		return grid;
+
+	}
+
+	// whether any of the group's people (with any out probing) lost health since the last readback next to an officer
+	blows( g, I, police ) {
+
+		const last = g.health ?? new Map(), now = new Map();
+		let hit = false;
+		for ( const i of [ ...g.members, ...( g.standoff?.probe ? g.standoff.probeGroup.members : [] ) ] ) {
+
+			if ( I.st[ i * 4 ] !== g.faction ) continue;
+			const h = I.st[ i * 4 + 3 ];
+			now.set( i, h );
+			if ( hit || ! ( last.get( i ) - h > BLOW ) ) continue;
+			const x = I.pos[ i * 2 ], y = I.pos[ i * 2 + 1 ], cx = Math.floor( x / 4 ), cy = Math.floor( y / 4 );
+			for ( let dx = - 1; dx <= 1 && ! hit; dx ++ ) for ( let dy = - 1; dy <= 1 && ! hit; dy ++ ) {
+
+				const o = police.get( `${cx + dx}:${cy + dy}` ) ?? [];
+				for ( let k = 0; k < o.length; k += 2 ) if ( Math.hypot( o[ k ] - x, o[ k + 1 ] - y ) < BLOW_R ) { hit = true; break; }
+
+			}
+
+		}
+
+		g.health = now;
+		return hit;
 
 	}
 

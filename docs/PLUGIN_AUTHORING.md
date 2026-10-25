@@ -77,6 +77,16 @@ older form `city: 'north'` still works.
 
 Setup can spawn crowds, bystanders, squads, and vehicles. Spawn calls return owned operations; inspect `settled` outcomes when later logic depends on allocation. Setup waits for outstanding owned operations before entering the briefing.
 
+Crowds facing police lines climb a ladder instead of walking into the shields. A protester or counter-protester crowd
+whose way a cordon blocks stands about 10 m short of it (1), sends small groups to probe it (2), leans on it (3), and
+at 4 storms one point while its leaders throw firecrackers. Police action nearby, or its people hurt or arrested by
+police, steps it up; 90 s without either calms it a level. `standoff` on `ctx.spawn.crowd` sets where a crowd starts
+(`level`), how far it can go (`ceiling`, default 3) and whether a blow from an officer already provokes it (`blows`):
+
+```js
+ctx.spawn.crowd( { id: 'counter', at: 'square', faction: 'counter', standoff: { level: 2, ceiling: 4, blows: true } } );
+```
+
 Attach reusable behaviors with `defineBehavior`. Each attachment gets fresh private state and `start`, `update`, `observe`, `onEvent`, `onAction`, and `stop` hooks. Behaviors can own game-time timers, movement, commands, crowd changes, actors, convoys, and coach cards. Owned work is canceled or cleaned up when the behavior stops.
 
 Player actions are semantic events. Selection contains opaque actor handles, movement contains copied coordinates, and vehicle actions contain vehicle handles; raw groups and person indices are not exposed. Use `ctx.commands.lock(id)` and `unlock(id)` for owner-scoped progressive command availability. Locks are released when the owner stops.
@@ -101,6 +111,6 @@ When enabled, the game asks before importing a remote URL and remembers a confir
 
 ## Current Limits
 
-The Scenario SDK is an experimental preview, not a full replacement for the built-in mission system. Existing missions stay on their original path until each candidate passes its own parity gate. Scenario-specific directors, protest-side systems, custody workflows, overlays, and full score/result compatibility are still under development. Built-in missions and templates name Ljubljana places (the defend template's default target is `'Državni zbor'`), so a scenario on another map names its own.
+The Scenario SDK is an experimental preview, not a full replacement for the built-in mission system. Existing missions stay on their original path until each candidate passes its own parity gate. Clash is the first built-in written on the SDK ([src/game/missions/clash.ts](../src/game/missions/clash.ts)); `examples/clash-scenario.ts` is the earlier preview of the old Clash (march from Prešernov trg). Scenario-specific directors, protest-side systems, custody workflows, overlays, and full score/result compatibility are still under development. Built-in missions and templates name Ljubljana places (the defend template's default target is `'Državni zbor'`), so a scenario on another map names its own.
 
 Run `npm test`, `npm run build`, and `tsc --noEmit --strict --lib ES2022,DOM src/game/scenarios/index.d.ts` when changing the SDK. Add source-backed tests for setup, timing, outcomes, scoring, and player workflows, plus a browser smoke when the host/UI path is involved.

@@ -262,6 +262,26 @@ test( 'a group pressing up behind one standing off queues too, however far back'
 
 } );
 
+test( 'a mission sets the starting level; a touchy group is provoked by blows next to an officer', () => {
+
+	const { crowd, st, pos, n, tick } = fixture( { front: 10 } );
+	crowd.heatStart = 2;
+	crowd.touchy = true;
+	for ( let i = 0; i < n; i ++ ) st[ i * 4 + 3 ] = 1;
+	tick();
+	assert.equal( crowd.heat, 2 );
+	// a blow far from any officer: nothing
+	st[ 5 * 4 + 3 ] = 0.9;
+	tick();
+	assert.equal( crowd.heat, 2 );
+	// a blow right at the line
+	const i = n - 1; pos[ i * 2 ] = 0; pos[ i * 2 + 1 ] = - 1;
+	st[ i * 4 + 3 ] = 0.95;
+	tick();
+	assert.equal( crowd.heat, 3 );
+
+} );
+
 test( "the player's own groups are not touched", () => {
 
 	const { crowd, S, tick } = fixture( { front: 10 } );
