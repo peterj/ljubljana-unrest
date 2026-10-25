@@ -87,6 +87,26 @@ test( 'scenario-owned orders retain validated metadata and spend only on issue r
 
 } );
 
+test( 'kettle commands accept a bounded explicit radius and reject it for other orders', async () => {
+
+	const fixture = commandFixture();
+	const operation = fixture.commands.execute( null, 'kettle', { at: [ 10, 20 ], selection: [ fixture.handle ], radius: 24 }, 'player' );
+	await Promise.resolve(); assert.equal( fixture.pending[ 0 ].request.radius, 24 );
+	fixture.pending[ 0 ].resolve( {} ); assert.equal( ( await operation.settled as any ).status, 'completed' );
+	assert.throws( () => fixture.commands.execute( null, 'charge', { at: [ 0, 0 ], selection: [ fixture.handle ], radius: 24 } ), /only to kettle/ );
+	assert.throws( () => fixture.commands.execute( null, 'kettle', { at: [ 0, 0 ], selection: [ fixture.handle ], radius: 101 } ), /radius/ );
+
+} );
+
+test( 'scenario engine prepares kettle navigation with the caller radius', async () => {
+
+	const calls = [], layer = {}, engine = Object.create( ScenarioEngine.prototype );
+	engine.mission = { world: { fieldTo: async ( ...args ) => { calls.push( args ); return layer; }, flow: { retain() {} } }, crowd: {}, runtime: {} };
+	const prepared = await engine.prepareCommand( { id: 'kettle', at: [ 10, 20 ], radius: 24 }, [ { members: [ 1, 2, 3 ] } ], new AbortController().signal );
+	assert.deepEqual( calls, [ [ 10, 20, 34 ] ] ); assert.equal( prepared.radius, 24 );
+
+} );
+
 test( 'command resources spend only after application; duplicate final-unit requests reject', async () => {
 
 	const { commands, runtime, pending, events, applied } = commandFixture();
