@@ -320,6 +320,15 @@ export class Sound {
 
 		}
 
+		// a firecracker at a police line (Standoff): a sharp bang, sometimes a second crack, the crowd roars
+		if ( kind === 'firecracker' ) {
+
+			this.play( 'bang', at, { vol: - 3 - Math.random() * 3, rate: 1.2 + Math.random() * 0.3 } );
+			if ( Math.random() < 0.5 ) this.play( 'bang', at, { vol: - 9, rate: 1.5 + Math.random() * 0.3, delay: 0.12 + Math.random() * 0.15 } );
+			this.swell( at, 0.6 );
+
+		}
+
 		if ( kind === 'water' ) {
 
 			const h = this.loop( from, 'truck', from, { vol: - 4, offset: Math.random() } );

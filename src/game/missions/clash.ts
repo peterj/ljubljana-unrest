@@ -1,180 +1,164 @@
-import { Mission, FACTION, MODE, STAT, fmt, LIME, ORANGE, near, cars, squads } from '../sdk/index.ts';
+import type * as Sdk from '../scenarios/sdk.d.ts';
+import * as sdk from '../scenarios/index.ts';
+import { scenarioMission } from '../scenarios/mission.ts';
 
 // ======================================================================================= CLASH
-// ======================================================================================= CLASH
-// The march goes round the north (its shortest way, Wolfova and the north edge of Kongresni trg, runs through the
-// counter-protest); the opening cordons seal the short ways out of the square toward that route: [ a, b, squads ].
-const CLASH_LEGS = [ [ - 225, 65, 15 ], [ - 314, 100, 15 ], [ - 450, - 80, 30 ] ]; // Čopova → Cankarjeva → Beethovnova / Šubičeva → Trg republike
-const CLASH_LINES = [
-	[ [ - 80, - 109 ], [ - 89, - 104 ], 3 ], // Wolfova
-	[ [ - 59, - 112 ], [ - 64, - 109 ], 1 ], // Hribarjevo nabrežje
-	[ [ - 193, - 96 ], [ - 183, - 95 ], 1 ], // Južni trg → Knafljev prehod
-	[ [ - 286, - 86 ], [ - 252, - 86 ], 3 ], // Slovenska, north of Šubičeva
-	[ [ - 309, - 107 ], [ - 302, - 83 ], 2 ], // Šubičeva
-];
+// A peaceful rally holds Trg republike; a fired-up counter-protest on Kongresni trg sets off for it. Its shortest ways
+// west leave the square's north-west corner along Šubičeva; the opening cordons seal those and the next three
+// (shortest-route cuts on the cost grid), leaving the long way round south of the old town open.
+// Built on the Scenario SDK: only its public builders, like a plugin.
 
-export class ClashMission extends Mission {
+function formatTime( seconds ) {
 
-	declare duration: number;
-	declare clash: any;
-	declare focus: [ number, number ];
-	declare zoom: number;
-	declare waterOpinion: number;
-	declare march: any;
-	declare waves: any;
-
-	static id = 'clash';
-	static title = 'Clash';
-	static subtitle = 'Keep the march and the counter-protest apart';
-	static side = 'police';
-	static brief = `A Pride-style march sets off from <b>Prešernov trg</b> to <b>Trg republike</b> by Čopova, Cankarjeva and Beethovnova.
-		A counter-protest has gathered on <b>Kongresni trg</b>, between the two, and more are coming. Your squads already hold
-		cordons across the streets out of the square: Wolfova and the embankment, the Južni trg passage, Slovenska and Šubičeva.
-		If the two crowds meet, there will be a brawl. Every injury your officers cause will be on the evening news.`;
-	static goals = [ 'Keep the clash meter from filling for 12:00', 'Injure as few people as possible' ];
-	static tips = [ 'The cordons seal the short ways out of Kongresni trg — the long way round (Vegova, Gosposka) is open',
-		'Counter-protesters chase the march — watch for flanking through side streets', 'Reserves wait on Tomšičeva, Trg republike and at PU Ljubljana',
-		'Kettling the counter-protest works, but it boils', 'Gas affects both sides equally' ];
-
-	async setup() {
-
-		const W = this.world, P = W.places;
-		await W.exits();
-		this.duration = 12 * 60;
-		this.clash = 0;
-		this.focus = P[ 'Kongresni trg' ];
-		this.zoom = 0.55;
-		this.resources = { gas: { left: 4, max: 4 }, water: { left: 4, max: 4 }, reinforce: { left: 2, max: 2 } };
-		this.waterOpinion = - 2;
-		this.march = await W.bloc( { kind: 'march', label: 'March', at: P[ 'Prešernov trg' ], n: 2600, groupSize: 100, spread: 40, goal: P[ 'Prešernov trg' ], goalR: 25, mode: MODE.HOLD, agitation: [ 0.05, 0.2 ], morale: 0.7 } );
-		await W.bloc( { faction: FACTION.COUNTER, kind: 'counter', label: 'Counter-protest', at: P[ 'Kongresni trg' ], n: 900, groupSize: 60, spread: 30, goal: P[ 'Kongresni trg' ], goalR: 25, mode: MODE.HOLD, agitation: [ 0.3, 0.55 ], morale: 0.7 } );
-		const s = P[ 'Trg republike' ];
-		// cordons already formed across the short ways out of Kongresni trg toward the march's route (well clear of
-		// both crowds: spawning on the squares injured dozens before the player could act)
-		for ( const [ a, b, n ] of CLASH_LINES ) {
-
-			const at = [ ( a[ 0 ] + b[ 0 ] ) / 2, ( a[ 1 ] + b[ 1 ] ) / 2 ];
-			await W.lineSquads( await squads( W, Array( n ).fill( at ) ), a, b, null );
-
-		}
-
-		await squads( W, [ [ - 285, 12 ], s, [ s[ 0 ] + 15, s[ 1 ] ], W.marks[ 'PU Ljubljana' ], W.marks[ 'PU Ljubljana' ] ] );
-		await cars( W, [ [ - 251, - 45 ], W.marks[ 'PU Ljubljana' ] ] );
-		await W.patrols.add( { at: [ s[ 0 ] + 10, s[ 1 ] + 25 ], water: true } ); // Slovenska by Trg republike, behind the lines
-		this.waves = [
-			{ t: 200, n: 600, at: W.marks[ 'Železniška postaja' ], label: 'Counter-protesters from the station' },
-			{ t: 420, n: 500, at: P[ 'Park Tivoli' ], label: 'Counter-protesters from Tivoli' },
-		];
-		await this.bystanders( 2000 );
-
-	}
-
-	start() {
-
-		this.after( 40, () => {
-
-			for ( const g of this.march ) { g.leg = 0; this.world.march( [ g ], ...CLASH_LEGS[ 0 ] ); }
-			this.event( 'The march sets off for Trg republike by Čopova', 'info', this.world.places[ 'Prešernov trg' ] );
-
-		} );
-		this.after( 2, () => this.event( 'The march starts in 0:40 — hold the cordons', 'info', this.world.places[ 'Kongresni trg' ] ) );
-		for ( const w of this.waves ) {
-
-			this.after( w.t - 30, () => this.event( `${w.label} in 0:30`, 'warn', w.at ) );
-			this.after( w.t, async () => {
-
-				await this.world.bloc( { faction: FACTION.COUNTER, kind: 'counter', label: w.label, at: w.at, n: w.n, groupSize: 60, spread: 30, goal: w.at, goalR: 20, agitation: [ 0.4, 0.65 ], morale: 0.8 } );
-				w.spawned = true;
-				this.event( `${w.label} have arrived`, 'bad', w.at );
-
-			} );
-
-		}
-
-	}
-
-	commands() { return this.policeCommands(); }
-
-	tick( dt ) {
-
-		// the march: a group moves on to its next leg when its centre is within 30 m of this one's goal
-		for ( const g of this.march ) {
-
-			if ( g.leg === undefined || g.leg >= CLASH_LEGS.length - 1 || ! g.center || g.mode !== MODE.MARCH ) continue;
-			const [ x, y ] = CLASH_LEGS[ g.leg ];
-			if ( near( g.center, [ x, y ], 30 ) ) this.world.march( [ g ], ...CLASH_LEGS[ ++ g.leg ] );
-
-		}
-
-		// counter-protest AI: go after the nearest part of the march
-		if ( this.t > 30 && this.t - ( this.flags.ai ?? 0 ) > 6 && this.world.intel ) {
-
-			this.flags.ai = this.t;
-			const marchers = this.world.groupsOf( FACTION.PROTESTER ).filter( ( g ) => g.center );
-			for ( const g of this.world.groupsOf( FACTION.COUNTER ) ) {
-
-				if ( ! g.center || Math.random() < 0.4 ) continue;
-				let best = null, bd = 450 * 450;
-				for ( const q of marchers ) {
-
-					const d = ( q.center[ 0 ] - g.center[ 0 ] ) ** 2 + ( q.center[ 1 ] - g.center[ 1 ] ) ** 2;
-					if ( d < bd ) { bd = d; best = q; }
-
-				}
-
-				if ( best ) this.world.march( [ g ], ...best.center.map( ( v ) => Math.round( v / 12 ) * 12 ), 8 ); // 12 m grid: chasers share fields
-
-			}
-
-		}
-
-		const c = this.stats ? this.stats[ STAT.CLASH ] : 0;
-		// capped like the façade breach: a full-on brawl still takes ~35 s to lose, time to react
-		this.clash = Math.max( 0, Math.min( 1, this.clash + ( c > 0 ? Math.min( 0.028, c / 2400 ) : - 0.012 ) * dt ) );
-		if ( this.clash > 0.3 && ! this.flags.c30 ) { this.flags.c30 = true; this.event( 'Fighting has broken out!', 'bad' ); }
-		if ( this.clash > 0.7 && ! this.flags.c70 ) { this.flags.c70 = true; this.event( 'The brawl is spreading — separate them now!', 'bad' ); }
-		if ( this.clash < 0.15 ) this.flags.c30 = this.flags.c70 = false;
-
-		if ( this.clash >= 1 ) this.end( false, 'A full street brawl erupted between the two crowds.' );
-		else if ( this.t >= this.duration ) this.end( true, 'The march ended without a brawl.' );
-
-	}
-
-	phase() {
-
-		const w = this.waves.find( ( q ) => ! q.spawned );
-		return w ? `Next: ${w.label} in ${fmt( w.t - this.t )}` : `${fmt( this.duration - this.t )} left`;
-
-	}
-
-	objectives() {
-
-		const inj = this.counters.injByPolice;
-		return [
-			{ label: 'Keep them apart for 12:00', value: this.t / this.duration, text: fmt( this.duration - this.t ), state: 'ok' },
-			{ label: 'Clash', value: this.clash, text: `${Math.round( this.clash * 100 )}%`, state: this.clash > 0.6 ? 'bad' : this.clash > 0.2 ? 'warn' : 'ok', invert: true },
-			{ label: '★ Injuries caused by police ≤ 20', value: Math.min( 1, inj / 20 ), text: `${inj}`, state: inj > 20 ? 'bad' : inj > 12 ? 'warn' : 'ok', invert: true },
-			{ label: '★ Brawl injuries ≤ 10', value: Math.min( 1, this.counters.injOther / 10 ), text: `${this.counters.injOther}`, state: this.counters.injOther > 10 ? 'bad' : 'ok', invert: true },
-		];
-
-	}
-
-	score( win ) {
-
-		const s2 = win && this.counters.injByPolice <= 20, s3 = win && this.counters.injOther <= 10;
-		return { stars: win + s2 + s3, lines: [
-			[ 'Injuries caused by police', this.counters.injByPolice ], [ 'Brawl injuries', this.counters.injOther ],
-			[ 'Officers injured', this.counters.injPolice ], [ 'Arrests', this.counters.arrested ], [ 'Public opinion', Math.round( this.opinion ) ] ] };
-
-	}
-
-	draw( o ) {
-
-		const s = this.world.places[ 'Trg republike' ];
-		this.drawZone( o, s[ 0 ], s[ 1 ], 40, ORANGE, 'MARCH DESTINATION' );
-		const w = this.waves.find( ( q ) => ! q.spawned );
-		if ( w && w.t - this.t < 60 ) this.drawZone( o, w.at[ 0 ], w.at[ 1 ], 35, LIME, `${fmt( w.t - this.t )}` );
-
-	}
+	const value = Math.floor( Math.max( 0, seconds ) );
+	return `${Math.floor( value / 60 )}:${String( value % 60 ).padStart( 2, '0' )}`;
 
 }
+
+const DURATION = 12 * 60, SET_OFF = 30;
+const LINES = [
+	{ id: 'subiceva', a: [ - 281, - 116 ], b: [ - 262, - 105 ], squads: 3 }, // Šubičeva, east end
+	{ id: 'republic-south', a: [ - 352, - 110 ], b: [ - 363, - 106 ], squads: 2 }, // south of Šubičeva, by Trg republike
+	{ id: 'passage', a: [ - 338, - 236 ], b: [ - 335, - 233 ], squads: 1 },
+	{ id: 'south-west', a: [ - 364, - 144 ], b: [ - 373, - 138 ], squads: 1 },
+] as const;
+// the counter-protest: already fired up (probing on arrival), escalating at blows from the police, firecrackers at worst
+const COUNTER = { faction: 'counter', agitation: [ 0.3, 0.55 ], morale: 0.7, standoff: { level: 2, ceiling: 4, blows: true } } as const;
+const WAVES = [
+	{ id: 'station-counter', at: 200, people: 600, from: 'station', label: 'Counter-protesters from the station' },
+	{ id: 'tivoli-counter', at: 420, people: 500, from: 'tivoli', label: 'Counter-protesters from Tivoli' },
+];
+
+export function clashScenario( { defineBehavior, defineScenario, landmark, place, policeCommands, preventClash }: typeof Sdk ) {
+
+	// the actors setup spawns, for the director (both run once per page: each mission is a fresh page load)
+	const state = { counters: [], cordons: [] };
+	const director = defineBehavior( {
+		id: 'clash-director',
+		create() {
+
+			let lastC30 = false, lastC70 = false;
+			return {
+				async start( ctx ) {
+
+					await Promise.all( state.cordons.map( async ( line ) => {
+
+						const result = await ctx.movement.move( line.actor, line.b, { line: line.a } ).settled;
+						if ( result.status !== 'completed' ) throw new Error( `clash.cordon.${line.id}: ${result.status}` );
+
+					} ) );
+					ctx.timeline.after( 2, () => ctx.presentation.notice( `The counter-protest sets off for Trg republike in ${formatTime( SET_OFF - 2 )}: hold the cordons`, 'info', 'square' ) );
+					ctx.timeline.after( SET_OFF, () => {
+
+						for ( const actor of state.counters ) ctx.movement.move( actor, 'republic', { radius: 40 } );
+						ctx.presentation.notice( 'The counter-protest sets off for the rally', 'warn', 'square' );
+
+					} );
+					for ( const wave of WAVES ) {
+
+						ctx.timeline.after( wave.at - 30, () => ctx.presentation.notice( `${wave.label} in 0:30`, 'warn', wave.from ) );
+						ctx.timeline.after( wave.at, () => {
+
+							for ( let offset = 0, index = 0; offset < wave.people; offset += 60, index ++ ) {
+
+								ctx.spawn.crowd( { id: `${wave.id}-${String( index + 1 ).padStart( 2, '0' )}`, label: wave.label, at: wave.from,
+									people: Math.min( 60, wave.people - offset ), groupSize: 60, spread: 30, ...COUNTER,
+									agitation: [ 0.4, 0.65 ], morale: 0.8, goal: 'republic', goalRadius: 40, mode: 'march' } );
+
+							}
+							ctx.presentation.notice( `${wave.label} have arrived, heading for the rally`, 'bad', wave.from );
+
+						} );
+
+					}
+
+				},
+				update( ctx ) {
+
+					const pressure = ctx.metrics.clashPressure;
+					if ( pressure > 0.3 && ! lastC30 ) { lastC30 = true; ctx.presentation.notice( 'Fighting has broken out!', 'bad' ); }
+					if ( pressure > 0.7 && ! lastC70 ) { lastC70 = true; ctx.presentation.notice( 'The brawl is spreading - separate them now!', 'bad' ); }
+					if ( pressure < 0.15 ) lastC30 = lastC70 = false;
+
+				},
+			};
+
+		},
+	} );
+
+	return defineScenario( {
+		id: 'clash', title: 'Clash', subtitle: 'Keep the counter-protest away from the rally',
+		brief: `A peaceful rally holds <b>Trg republike</b>. A counter-protest on <b>Kongresni trg</b> is already fired up, and in half a
+			minute it sets off for the rally. Your squads hold cordons across Šubičeva and the streets south of it. Angry crowds
+			probe the lines, and every blow your officers land makes them angrier; quiet lines calm them down. More
+			counter-protesters are coming. If the two crowds meet, there will be a brawl, and every injury your officers cause
+			will be on the evening news.`,
+		goals: [ 'Keep the clash meter from filling for 12:00', 'Injure as few people as possible' ],
+		tips: [ 'Probes test your lines: a line that hits back escalates the crowd, one that holds quietly calms it down',
+			'A crowd left alone for 1:30 calms down a level', 'Snatch the leaders throwing firecrackers (X)',
+			'The long way round, south of the old town, is open: reserves wait on Tomšičeva, Slovenska and at PU Ljubljana',
+			'The waves from the station and Tivoli do not pass your cordons', 'Gas affects both sides equally' ],
+		phase: ( { time } ) => {
+
+			const wave = WAVES.find( ( entry ) => entry.at > time );
+			return wave ? `Next: ${wave.label} in ${formatTime( wave.at - time )}` : `${formatTime( DURATION - time )} left`;
+
+		},
+		indicators: [
+			{ id: 'police-injuries', label: '★ Injuries caused by police ≤ 20', counter: 'injuriesByPolice', maximum: 20, warnAt: 12 },
+			{ id: 'brawl-injuries', label: '★ Brawl injuries ≤ 10', counter: 'otherInjuries', maximum: 10 },
+		],
+		score: ( { win, metrics } ) => {
+
+			const second = win && metrics.counters.injuriesByPolice <= 20, third = win && metrics.counters.otherInjuries <= 10;
+			return { stars: Number( win ) + Number( second ) + Number( third ), lines: [
+				[ 'Injuries caused by police', metrics.counters.injuriesByPolice ], [ 'Brawl injuries', metrics.counters.otherInjuries ],
+				[ 'Officers injured', metrics.counters.officersInjured ], [ 'Arrests', metrics.counters.arrests ], [ 'Public opinion', Math.round( metrics.opinion ) ],
+			] };
+
+		},
+		resources: { gas: { capacity: 4 }, water: { capacity: 4 }, reinforce: { capacity: 2, cooldown: 15 } },
+		commands: policeCommands( { gas: 'gas', water: 'water', reinforce: 'reinforce', crew: true } ),
+		opinion: { water: - 2 },
+		locations: { square: place( 'Kongresni trg' ), republic: place( 'Trg republike' ), preseren: place( 'Prešernov trg' ),
+			station: landmark( 'Železniška postaja' ), police: landmark( 'PU Ljubljana' ), tivoli: place( 'Park Tivoli' ), mestni: place( 'Mestni trg' ) },
+		async setup( ctx ) {
+
+			state.counters = []; state.cordons = [];
+			const operations = [];
+			const capture = ( operation, accept = ( _actor ) => {} ) => operations.push( operation.settled.then( ( outcome ) => {
+
+				if ( outcome.status !== 'completed' ) throw new Error( `clash setup: ${outcome.status}` );
+				accept( outcome.value );
+
+			} ) );
+			ctx.presentation.focus( 'square', 0.55 );
+			capture( ctx.spawn.crowd( { id: 'rally', label: 'Rally', at: 'republic', people: 2000, groupSize: 100, spread: 35,
+				agitation: [ 0.02, 0.12 ], resolve: [ 0.9, 1.3 ], morale: 0.7, mode: 'hold' } ) );
+			for ( let index = 0; index < 15; index ++ ) capture( ctx.spawn.crowd( { id: `counter-${String( index + 1 ).padStart( 2, '0' )}`,
+				label: 'Counter-protest', at: 'square', people: 60, groupSize: 60, spread: 30, ...COUNTER, mode: 'hold' } ),
+			( actor ) => state.counters.push( actor ) );
+			// cordons: squads wait on each line's midpoint and form it when the scenario starts
+			for ( const line of LINES ) {
+
+				const at: Sdk.Point = [ ( line.a[ 0 ] + line.b[ 0 ] ) / 2, ( line.a[ 1 ] + line.b[ 1 ] ) / 2 ];
+				capture( ctx.spawn.squad( { id: `cordon-${line.id}`, at, people: line.squads * 24 } ),
+					( actor ) => state.cordons.push( { id: line.id, a: [ ...line.a ], b: [ ...line.b ], actor } ) );
+
+			}
+			for ( const [ id, at ] of [ [ 'reserve-tomsiceva', [ - 285, 12 ] ], [ 'reserve-slovenska', [ - 251, - 50 ] ],
+				[ 'reserve-police-1', 'police' ], [ 'reserve-police-2', 'police' ] ] as [ string, string | Sdk.Point ][] ) capture( ctx.spawn.squad( { id, at, people: 24 } ) );
+			capture( ctx.spawn.vehicle( { id: 'patrol-slovenska', type: 'police-patrol', at: [ - 251, - 45 ] } ) );
+			capture( ctx.spawn.vehicle( { id: 'patrol-police', type: 'police-patrol', at: 'police' } ) );
+			capture( ctx.spawn.vehicle( { id: 'water-cannon', type: 'water-cannon', at: [ - 410, 37 ] } ) );
+			capture( ctx.spawn.bystanders( { id: 'onlookers', people: 2000, destinations: [ 'preseren', 'square', 'republic', 'tivoli', 'mestni' ] } ) );
+			await Promise.all( operations );
+
+		},
+		behaviors: [ director( { id: 'clash-director' } ) ],
+		objectives: [ preventClash( { id: 'keep-apart', seconds: DURATION } ) ],
+	} );
+
+}
+
+export const ClashMission = scenarioMission( clashScenario( sdk as unknown as typeof Sdk ) );

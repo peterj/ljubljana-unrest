@@ -462,6 +462,7 @@ export class Mission {
 
 		}
 
+		for ( const sq of squads ) if ( sq.center ) this.world.provoke?.( 'firearms', ...( sq.center as [ number, number ] ) );
 		this.counters.shot = ( this.counters.shot ?? 0 ) + hit;
 		this.escalate( 4, 'FIREARMS' );
 		this.nudgeOpinion( - 25 - hit, 'shots fired' );
@@ -734,7 +735,8 @@ export class Mission {
 		let storming = 0;
 		for ( const q of this.world.groups ) {
 
-			if ( q.mode !== MODE.STORM || ! ( q.alive > 0 ) ) continue;
+			// the player's own groups (AI crowds storming a line, Standoff, are not on the protest's conscience)
+			if ( q.mode !== MODE.STORM || ! ( q.alive > 0 ) || q.faction !== FACTION.PROTESTER ) continue;
 			storming ++;
 			if ( this.t >= q.stormUntil ) {
 
@@ -782,13 +784,18 @@ export class Mission {
 		ctx.textAlign = 'center';
 		for ( const g of this.world.groups ) {
 
-			if ( g.faction !== FACTION.PROTESTER || ! g.center || ! ( g.alive > 0 ) ) continue;
+			if ( ( g.faction !== FACTION.PROTESTER && g.faction !== FACTION.COUNTER ) || ! g.center || ! ( g.alive > 0 ) ) continue;
 			const tags = [];
+			// crowds facing a police line (Standoff)
+			const S = g.standoff;
+			if ( S && g.mode === MODE.STANDOFF ) tags.push( S.probe ? 'PROBING' : 'STANDOFF' );
+			if ( g.probeOf ) tags.push( 'PROBE' );
+			if ( S && g.heat >= 4 ) tags.push( 'FIRECRACKERS' );
 			if ( g.kind === 'medics' ) tags.push( '✚ MEDICS' );
 			if ( g.mode === MODE.SIT ) tags.push( 'SITTING' );
 			if ( g.mode === MODE.SHIELD ) tags.push( 'SHIELD WALL' );
 			if ( g.mode === MODE.PUSH ) tags.push( 'PUSHING' );
-			if ( g.mode === MODE.STORM ) tags.push( `STORMING ${Math.ceil( Math.max( 0, g.stormUntil - this.t ) )}s` );
+			if ( g.mode === MODE.STORM ) tags.push( g.stormUntil ? `STORMING ${Math.ceil( Math.max( 0, g.stormUntil - this.t ) )}s` : 'STORMING' );
 			if ( this.fireLevel( g ) === 1 ) tags.push( 'FIRED UP' );
 			if ( shel.has( g.id ) ) tags.push( '☂' );
 			if ( g.scatterUntil > this.t ) tags.push( 'SCATTERING' );

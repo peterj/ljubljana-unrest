@@ -2,6 +2,7 @@
 // order previews. Cheap and crisp; it deliberately does not bloom.
 import { FACTION } from '../sim/crowd.ts';
 import { WATER_RANGE, SHIELD_REACH } from '../sim/world.ts';
+import { THROW_FLIGHT, FLINCH } from '../sim/standoff.ts';
 
 const COLORS = { info: '43,140,255', good: '79,209,139', warn: '255,176,32', bad: '255,45,85' };
 
@@ -110,6 +111,44 @@ export class Overlay {
 			const s = Math.max( 6, 3 / this.mpp );
 			ctx.fillRect( - s * 2.2, - s * 0.6, s * 2.2, s * 1.2 );
 			ctx.restore();
+
+		}
+
+		// firecrackers (Standoff): a spark arcing over the crowd, then a flash where it lands and an orange glow while the
+		// officers there flinch. With the strobe switched off (☀) only a dim glow
+		const S = game.world.standoff;
+		for ( const f of S.flights ) {
+
+			const k = Math.min( 1, ( S.t - f.t ) / THROW_FLIGHT );
+			const [ ax, ay ] = this.toScreen( ...( f.from as [ number, number ] ) ), [ bx, by ] = this.toScreen( ...( f.to as [ number, number ] ) );
+			const x = ax + ( bx - ax ) * k, y = ay + ( by - ay ) * k - Math.sin( k * Math.PI ) * Math.max( 8, 3 / this.mpp );
+			ctx.fillStyle = 'rgba(255,214,120,0.95)';
+			ctx.beginPath(); ctx.arc( x, y, 2, 0, Math.PI * 2 ); ctx.fill();
+
+		}
+
+		for ( const b of S.blasts ) {
+
+			const [ x, y ] = this.toScreen( b.x, b.y );
+			const r = b.r / this.mpp;
+			if ( b.t < 0.25 && ! game.strobeOff ) {
+
+				const k = 1 - b.t / 0.25, R = r * ( 1.2 + b.t * 4 );
+				const g = ctx.createRadialGradient( x, y, 0, x, y, R );
+				g.addColorStop( 0, `rgba(255,255,240,${k})` );
+				g.addColorStop( 0.35, `rgba(255,220,140,${k * 0.8})` );
+				g.addColorStop( 1, 'rgba(255,170,60,0)' );
+				ctx.fillStyle = g;
+				ctx.beginPath(); ctx.arc( x, y, R, 0, Math.PI * 2 ); ctx.fill();
+
+			}
+
+			const a = Math.max( 0, 1 - b.t / FLINCH ) * ( game.strobeOff ? 0.18 : 0.3 );
+			const g = ctx.createRadialGradient( x, y, 0, x, y, r );
+			g.addColorStop( 0, `rgba(255,140,40,${a})` );
+			g.addColorStop( 1, 'rgba(255,140,40,0)' );
+			ctx.fillStyle = g;
+			ctx.beginPath(); ctx.arc( x, y, r, 0, Math.PI * 2 ); ctx.fill();
 
 		}
 

@@ -124,7 +124,7 @@ export class Hud {
 		$( 'pauseBtn' ).textContent = g.paused ? '▶' : '❚❚';
 		$( 'speedBtn' ).textContent = g.speed + '×';
 		$( 'soundBtn' ).classList.toggle( 'off', g.sound.muted );
-		$( 'strobeBtn' ).hidden = ! m.constructor.flashing;
+		$( 'strobeBtn' ).hidden = ! m.constructor.flashing && ! g.world?.standoff?.flashed; // firecrackers flash too
 		$( 'strobeBtn' ).classList.toggle( 'off', g.strobeOff );
 		const ph = m.phase();
 		$( 'phase' ).textContent = ph;
