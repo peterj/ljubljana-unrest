@@ -38,8 +38,9 @@ const rgb = ( c ) => vec3( c.r, c.g, c.b );
 export const FACTION = { PROTESTER: 0, POLICE: 1, BYSTANDER: 2, COUNTER: 3, ARRESTED: - 2, ARRESTED_SITTER: - 3, GONE: - 4 };
 export const ROLE = { MEMBER: 0, LEADER: 1, SITTER: 2, BIKE: 4 };
 export const MODE = {
-	MARCH: 0, HOLD: 1, RIOT: 2, DISPERSE: 3, SIT: 4, SHIELD: 5, PUSH: 6, STORM: 7, PANIC: 9, // protesters / counter-protesters
+	MARCH: 0, HOLD: 1, RIOT: 2, DISPERSE: 3, SIT: 4, SHIELD: 5, PUSH: 6, STORM: 7, PANIC: 9, STANDOFF: 12, // protesters / counter-protesters
 	// SHIELD: a march behind locked arms and banners · PUSH / STORM: fired-up marches that lean on / break police lines
+	// STANDOFF: a march blocked by a police line (Standoff): walks up to about STANDOFF_GAP m of it and stands there
 	// PANIC: civilians or bystanders running for their lives (their flow field + away from u.panicAt), nobody fights
 	MOVE: 0, FORMATION: 1, CHARGE: 2, ARREST: 3, SHOVE: 8, SNATCH: 10, BRACE: 11, // police
 	// SHOVE: a cordon advancing shields up (World.shieldPush): a formation that pushes crowds back hard and takes fewer blows
@@ -57,7 +58,7 @@ export const STAT = {
 	VEH_BLOCK: 16, VEH_ATTACK: 24, ZONE: 32, // + vehicle index / zone index
 };
 const NSTAT = 48;
-export const MAX_VEHICLES = 8, MAX_ZONES = 16, MAX_GAS = 8, MAX_JETS = 4, MAX_EDITS = 2048, MAX_SHELTER = 8;
+export const MAX_VEHICLES = 8, MAX_ZONES = 16, MAX_GAS = 8, MAX_JETS = 4, MAX_EDITS = 2048, MAX_SHELTER = 8, MAX_BLASTS = 8;
 export const ZONE = { PROT: 1, PROT_FACADE: 2, COUNTER: 3, POLICE: 4, CIVIL: 5, PROT_STAY: 6 }; // PROT_STAY: protesters not on their way home
 
 const CELL = 1.25; // spatial hash cell (≥ interaction radius)
@@ -70,6 +71,12 @@ const K_REP = 38, C_DAMP = 3.0, K_WALL = 60, WALL_R = 0.35, TAU = 0.45;
 const CONTACT = 1.05;
 const VEH_HALF = [ 1.2, 2.8 ]; // vehicle half width / half length (m)
 const BIKE_SPEED = 2.6, BIKE_GAP = 0.45; // riders: speed multiplier, extra personal space (m)
+// standoff: police per 4 m cell that count as a line · how slow the person in front must be (along the way, m/s) for
+// those behind to only creep (m/s; a front row seeing its neighbours as "ahead" still edges up); pressed closer than R_SAME
+// behind anyone they stop (no pressing into backs)
+const STANDOFF_POLICE = 1.5, QUEUE_SLOW = 0.5, QUEUE_CREEP = 0.3;
+// firecrackers: × push of a flinching officer on civilians · stress/s they add to officers
+const FLINCH_K = 0.5, FLINCH_STRESS = 0.12;
 
 export class Crowd {
 
@@ -173,6 +180,7 @@ export class Crowd {
 			shelter: uniformArray( new Array( MAX_SHELTER ).fill( - 1 ), 'float' ), // groups under umbrellas: tear gas barely reaches them
 			parting: uniform( - 1, 'float' ), // a group its own side makes way for (the banner): they are shoved aside, it barely feels them
 			panicAt: uniform( new THREE.Vector4() ), // x, y, radius, strength: what panicking people run from (gunfire)
+			blasts: uniformArray( Array.from( { length: MAX_BLASTS }, () => new THREE.Vector4() ), 'vec4' ), // firecrackers: x, y, r, strength
 		};
 
 		this._buildKernels();
@@ -346,6 +354,18 @@ export class Crowd {
 
 	}
 
+	setBlasts( list ) { // [{x, y, r, strength}]
+
+		const A = this.u.blasts.array;
+		for ( let k = 0; k < MAX_BLASTS; k ++ ) {
+
+			const b = list[ k ];
+			A[ k ].set( b ? b.x : 0, b ? b.y : 0, b ? b.r : 0, b ? b.strength : 0 );
+
+		}
+
+	}
+
 	setShelter( ids ) { // group ids under umbrellas
 
 		const A = this.u.shelter.array;
@@ -466,6 +486,20 @@ export class Crowd {
 
 			const d = p.sub( vv.xy );
 			return vec2( d.x.mul( vv.w ).sub( d.y.mul( vv.z ) ), d.x.mul( vv.z ).add( d.y.mul( vv.w ) ) );
+
+		};
+
+		// firecrackers: how hard an officer at q flinches (0..1, the strongest blast they stand in)
+		const flinchAt = ( q, name ) => {
+
+			const f = float( 0 ).toVar();
+			Loop( { start: int( 0 ), end: int( MAX_BLASTS ), type: 'int', name }, ( counters ) => {
+
+				const bz = u.blasts.element( counters[ name ] );
+				If( bz.z.greaterThan( 0 ).and( length( q.sub( bz.xy ) ).lessThan( bz.z ) ), () => { f.assign( max( f, bz.w ) ); } );
+
+			} );
+			return f;
 
 		};
 
@@ -598,10 +632,14 @@ export class Crowd {
 			const leaving = isCiv.and( resolve.lessThan( 0 ) ).and( isSitter.not() );
 			// police holding (or advancing in) a formation: officers seek their own slot round the group anchor; shields up
 			// (a line advancing or braced) it is firmer
-			const shove = isPol.and( mode.equal( MODE.SHOVE ).or( mode.equal( MODE.BRACE ) ) );
-			const formation = isPol.and( mode.equal( MODE.FORMATION ) ).or( shove );
+			// a firecracker going off next to an officer: shields down for a moment, they hold their slot
+			const flinch = select( isPol, flinchAt( p, 'fl' ), float( 0 ) );
+			const braced = isPol.and( mode.equal( MODE.SHOVE ).or( mode.equal( MODE.BRACE ) ) );
+			const shove = braced.and( flinch.lessThan( 0.5 ) );
+			const formation = isPol.and( mode.equal( MODE.FORMATION ) ).or( braced );
 			const snatch = isPol.and( mode.equal( MODE.SNATCH ) );
 			const panic = isPol.not().and( mode.equal( MODE.PANIC ) );
+			const standoff = isCiv.and( mode.equal( MODE.STANDOFF ) ).and( leaving.not() );
 
 			// ---- hierarchy: read own leader's state
 			const li = uint( ga.y );
@@ -660,7 +698,8 @@ export class Crowd {
 			} );
 
 			// riot mode or high agitation → move toward the enemy: police, and the other camp
-			If( isCiv.and( leaving.not() ).and( isSitter.not() ).and( storm.not() ).and( panic.not() ).and( mode.equal( MODE.RIOT ).or( ag.greaterThan( 0.85 ) ) ), () => {
+			// (not from a standoff: the group decides when to go for the line, Standoff)
+			If( isCiv.and( leaving.not() ).and( isSitter.not() ).and( storm.not() ).and( panic.not() ).and( standoff.not() ).and( mode.equal( MODE.RIOT ).or( ag.greaterThan( 0.85 ) ) ), () => {
 
 				const rival = select( isProt, densGrad( p, 3 ), densGrad( p, 0 ) );
 				const gp = densGrad( p, 1 ).add( rival.mul( 1.5 ) );
@@ -778,6 +817,15 @@ export class Crowd {
 			const speed = base.mul( ag.mul( 1.1 ).add( 1 ) ).mul( modeK ).mul( gasK.mul( 0.6 ).add( 1 ) ).mul( select( isSitter, 0.0, 1.0 ) ).mul( select( bike, BIKE_SPEED, 1.0 ) ).mul( wait );
 			const vDes = dir.mul( speed ).toVar();
 
+			// standoff: police ~7–12 m ahead (the 4 m grid) → stand; closer → step back
+			If( standoff, () => {
+
+				const polAt = ( d ) => densAt( p.add( dir.mul( d ) ), 1 );
+				If( max( polAt( 2 ), polAt( 4.5 ) ).greaterThan( STANDOFF_POLICE ), () => { vDes.mulAssign( - 0.4 ); } )
+					.ElseIf( max( polAt( 7 ), polAt( 10 ) ).greaterThan( STANDOFF_POLICE ), () => { vDes.assign( vec2( 0 ) ); } );
+
+			} );
+
 			// ---- walls: slide along, and push out when inside the margin
 			const sd = sdfAt( p );
 			const grad = sdfGrad( p );
@@ -817,6 +865,7 @@ export class Crowd {
 			const contact = float( 0 ).toVar();
 			const arresting = float( 0 ).toVar();
 			const snatched = float( 0 ).toVar(); // snatch officers holding this (leader)
+			const queued = float( 0 ).toVar(); // standoff: someone of the own side close in front is standing (creep) · 2: right at their back (stop)
 			const dmgPolice = float( 0 ).toVar();
 			const dmgOther = float( 0 ).toVar();
 			const c = cellOf( p );
@@ -868,7 +917,10 @@ export class Crowd {
 										// a shield push drives the crowd back and leans into it
 										// a snatch squad shoulders everyone but leaders aside on its way in
 										const shoveBy = select( jMode.equal( MODE.STORM ), 3.0, select( jMode.equal( MODE.PUSH ), 1.6, 1.0 ) ).mul( select( shove.or( snatch ), SHOVE_HOLD, 1.0 ) );
-										const polK = select( jMode.equal( MODE.SHOVE ).or( jMode.equal( MODE.BRACE ) ), SHOVE_K, select( jMode.equal( MODE.SNATCH ).and( isLeader.not() ), SNATCH_K, 1.0 ) );
+										// an officer flinching from a firecracker pushes half as hard, shields or not
+										const jFlinch = float( 0 ).toVar();
+										If( isCiv.and( jPol ), () => { jFlinch.assign( flinchAt( q, 'fj' ) ); } );
+										const polK = select( jFlinch.greaterThan( 0.5 ), FLINCH_K, select( jMode.equal( MODE.SHOVE ).or( jMode.equal( MODE.BRACE ) ), SHOVE_K, select( jMode.equal( MODE.SNATCH ).and( isLeader.not() ), SNATCH_K, 1.0 ) ) );
 										const mass = select( isCiv.and( jPol ), u.policeMass.mul( lean ).mul( polK ), select( isPol.and( jCiv ), shoveBy.div( u.policeMass ), part ) )
 											.mul( select( isSitter, 0.35, 1.0 ) );
 										force.addAssign( n.mul( overlap.mul( K_REP ).mul( mass ) ) );
@@ -882,6 +934,13 @@ export class Crowd {
 
 										nAg.addAssign( sj.z );
 										nCnt.addAssign( 1 );
+										// a queue: someone close ahead (along the way) who is barely moving, or right in front of them
+										If( standoff.and( dot( n, dir ).lessThan( - 0.6 ) ), () => {
+
+											If( dist.lessThan( R_SAME * 0.9 ), () => { queued.assign( 2 ); } )
+												.ElseIf( dot( vel.element( j ), dir ).lessThan( QUEUE_SLOW ), () => { queued.assign( max( queued, 1 ) ); } );
+
+										} );
 
 									} );
 
@@ -930,6 +989,11 @@ export class Crowd {
 
 			} );
 
+			// standoff: creep up behind them, stand rather than press into their backs (stepping back from the line still goes)
+			const fwd = dot( vDes, dir );
+			If( queued.greaterThan( 1.5 ).and( fwd.greaterThan( 0 ) ), () => { vDes.assign( vec2( 0 ) ); } )
+				.ElseIf( queued.greaterThan( 0.5 ).and( fwd.greaterThan( QUEUE_CREEP ) ), () => { vDes.mulAssign( float( QUEUE_CREEP ).div( fwd ) ); } );
+
 			// ---- velocity
 			const acc = vDes.sub( v ).div( TAU ).add( force );
 			const vNew = v.add( acc.mul( dt ) ).toVar();
@@ -954,7 +1018,8 @@ export class Crowd {
 				.add( gasK.mul( 0.08 ) )
 				.add( min( soaked, 1 ).mul( 0.05 ) )
 				.sub( ag.mul( select( isSitter, 0.3, 0.06 ) ) ) // sitters stay calm, it is a peaceful protest
-				.add( select( isPol, gb.w.sub( ag ).mul( 0.05 ), float( 0 ) ) );
+				.add( select( isPol, gb.w.sub( ag ).mul( 0.05 ), float( 0 ) ) )
+				.add( flinch.mul( FLINCH_STRESS ) ); // firecrackers rattle officers
 			const agN = clamp( ag.add( dAg.mul( dt ) ), 0, 1 );
 
 			// ---- resolve (commitment): crowds give up under gas, blows, isolation and time

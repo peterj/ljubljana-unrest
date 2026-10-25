@@ -63,6 +63,7 @@ class Game {
 	declare lastFrame: number;
 	declare newlyIdentified: any[];
 	declare lastIdMsg: any;
+	declare heatMsg: Record<string, number>;
 	declare drawing: any;
 	declare armed: any;
 	declare lineDrag: boolean;
@@ -221,6 +222,7 @@ class Game {
 		this.scene.add( this.world.patrols.group );
 		this.aiming = null;
 		this.mission = new M( this );
+		this.world.standoff.exempt = this.mission.side === 'protest' ? [ FACTION.PROTESTER ] : []; // the player's own groups
 		await this.mission.setup();
 		this.crowd.upload();
 		this.world.started = true;
@@ -426,6 +428,24 @@ class Game {
 			this.sound.play( e.type === 'retreat' ? 'whistle_3' : 'whistle_1', e.at, { vol: - 3 } );
 			m.event( e.type === 'retreat' ? `${e.label}: the line is breaking — falling back to re-form` : `${e.label}: officers down, the line closes ranks`,
 				e.type === 'retreat' ? ( ours ? 'bad' : 'good' ) : ( ours ? 'warn' : 'info' ), e.at );
+
+		}
+
+		// crowds facing police lines: stop short, probe, push, firecrackers (Standoff); one message per kind every 12 s
+		for ( const e of this.world.standoff.update() ) {
+
+			const ours = m.side === 'police', g = e.group;
+			const key = e.type === 'standoff' ? 'standoff' : `${e.type}${e.level}`;
+			if ( m.t - ( ( this.heatMsg ??= {} )[ key ] ?? - 99 ) < 12 ) continue;
+			this.heatMsg[ key ] = m.t;
+			const text = e.type === 'standoff' ? `${g.label} stops short of the police line`
+				: e.type === 'down' ? `${g.label} is calming down`
+				: e.level === 2 ? `${g.label}: small groups break off to probe the line`
+				: e.level === 3 ? `${g.label} tries to break through the line`
+				: `${g.label}: firecrackers at the line, a concentrated breach`;
+			const kind = e.type === 'down' ? ( ours ? 'good' : 'info' ) : e.type === 'standoff' || e.level === 2 ? 'info' : e.level === 3 ? 'warn' : ( ours ? 'bad' : 'warn' );
+			m.event( text, kind, e.at );
+			if ( e.type === 'up' && e.level >= 3 ) this.sound.swell( e.at, e.level / 4 );
 
 		}
 

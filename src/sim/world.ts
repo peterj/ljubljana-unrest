@@ -2,6 +2,7 @@
 // formations, tear gas, and the periodic "intel" readback (group centroids, leaders, CCTV).
 import { FACTION, MODE, ROLE } from './crowd.ts';
 import { Intel } from './intel.ts';
+import { Standoff } from './standoff.ts';
 
 export type Vec2 = [ number, number ];
 // a crowd group or police squad; missions attach their own bookkeeping too
@@ -52,6 +53,7 @@ export class World {
 	declare onFx: any;
 	declare pushEvents: any[];
 	declare intel: Intel;
+	declare standoff: Standoff;
 	declare started: boolean;
 	declare _net: Uint8Array<ArrayBuffer>;
 	declare exitLayer: any;
@@ -73,8 +75,12 @@ export class World {
 		this.pushEvents = []; // shield pushes that ended: { type: 'done' | 'stalled', at, label } (drained by Game.onIntel)
 		this.intel = null;
 		this.started = false;
+		this.standoff = new Standoff( this ); // crowds facing police lines (driven by Game.onIntel)
 
 	}
+
+	// police action at (x, y), by the player or AI police: crowds nearby get angrier (Standoff)
+	provoke( kind, x, y ) { this.standoff?.provoke( kind, x, y ); }
 
 	// ---------------------------------------------------------------- walkability (CPU copies of GPU grids)
 
@@ -530,6 +536,7 @@ export class World {
 		this.endSnatch( squads );
 		this.uncordon( squads );
 		this.onFx?.( 'kettle', x, y );
+		this.provoke?.( 'kettle', x, y );
 		const officers = squads.flatMap( ( g ) => g.members );
 		const rows = Math.max( 1, Math.ceil( officers.length * 0.8 / ( 2 * Math.PI * radius ) ) );
 		const idx = officers.map( ( i ) => [ i, Math.atan2( pos[ i * 2 + 1 ] - y, pos[ i * 2 ] - x ) ] )
@@ -565,6 +572,7 @@ export class World {
 		this.endSnatch( squads );
 		this.uncordon( squads );
 		this.onFx?.( 'charge', x, y );
+		this.provoke?.( 'charge', x, y );
 		const L = layer ?? await this.fieldTo( x, y, 6 );
 		if ( ! valid() ) return false;
 		for ( const g of squads ) {
@@ -588,6 +596,7 @@ export class World {
 		const L = layer ?? await this.fieldTo( x, y, r );
 		if ( ! valid() ) return false;
 		const [ ax, ay ] = aim ?? [ x, y ];
+		this.provoke?.( 'arrest', ax, ay );
 		for ( const g of squads ) {
 
 			this.setLayer( g, L );
@@ -639,6 +648,7 @@ export class World {
 		this.uncordon( squads );
 		for ( const g of squads ) g.tighten = null;
 		this.setMode( squads, MODE.SNATCH, { aggression: 0.3 } );
+		if ( target.leaderPos ) this.provoke?.( 'snatch', ...( target.leaderPos as [ number, number ] ) );
 		this._chase( squads, now );
 
 	}
@@ -754,6 +764,7 @@ export class World {
 		// same centre, so the squads keep their flow field; with L.push set the line re-forms shields up
 		if ( turn ) this.lineSquads( L.squads, P.turn.a, P.turn.b, this.intel?.pos, L, { keepField: true } );
 		this.onFx?.( 'shield', P.mid[ 0 ] + P.n[ 0 ] * P.d, P.mid[ 1 ] + P.n[ 1 ] * P.d );
+		this.provoke?.( 'shield', P.mid[ 0 ] + P.n[ 0 ] * Math.min( P.d, 10 ), P.mid[ 1 ] + P.n[ 1 ] * Math.min( P.d, 10 ) );
 		return L;
 
 	}
@@ -914,6 +925,7 @@ export class World {
 
 		this.gasClouds.push( { x, y, r: 6, t: 0, ttl: 28 } );
 		this.onFx?.( 'gas', x, y );
+		this.provoke?.( 'gas', x, y );
 
 	}
 
@@ -926,6 +938,7 @@ export class World {
 		this._jetAt( j );
 		j.from = [ j.x, j.y ]; // the sound's handle for this jet (it stays while the jet lasts, wherever the truck goes)
 		this.onFx?.( 'water', j.x + Math.cos( angle ) * 20, j.y + Math.sin( angle ) * 20, j.from );
+		this.provoke?.( 'water', j.x + Math.cos( angle ) * 20, j.y + Math.sin( angle ) * 20 );
 
 	}
 
@@ -968,6 +981,7 @@ export class World {
 		}
 
 		this.gasClouds = this.gasClouds.filter( ( c ) => c.t < c.ttl );
+		this.standoff?.step( dt );
 		for ( const j of this.jets ) { j.t += dt; if ( j.truck ) this._jetAt( j ); }
 		this.jets = this.jets.filter( ( j ) => j.t < j.ttl );
 		this.crowd.setJets( this.jets );
