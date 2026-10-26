@@ -184,9 +184,10 @@ export class CommandHost {
 		fields( options, [ 'at', 'selection', 'opinion', 'radius' ], 'commands.execute' );
 		const definition = this.definitions.get( id );
 		check( definition, 'commands.execute.id', `unknown command '${id}'` );
-		check( options.radius === undefined || id === 'kettle', 'commands.execute.radius', 'is available only to kettle' );
-		check( options.radius === undefined || Number.isFinite( options.radius ) && options.radius >= 14 && options.radius <= 100,
-			'commands.execute.radius', 'must be from 14 to 100 meters' );
+		check( options.radius === undefined || [ 'arrest', 'kettle' ].includes( id ), 'commands.execute.radius', 'is available only to arrest or kettle' );
+		const minimumRadius = id === 'kettle' ? 14 : 5;
+		check( options.radius === undefined || Number.isFinite( options.radius ) && options.radius >= minimumRadius && options.radius <= 100,
+			'commands.execute.radius', `must be from ${minimumRadius} to 100 meters` );
 		check( [ 'starting', 'running', 'paused' ].includes( this.runtime.state ), 'commands.execute', 'scenario has not started' );
 		if ( options.opinion !== undefined ) {
 

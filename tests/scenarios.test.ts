@@ -1049,10 +1049,12 @@ test( 'Rescue mobile police deploy a road cordon and pursue after the Speaker pa
 			drive: ( handle, at, options ) => { drives.push( { handle, at, options } ); return { status: 'completed', value: {} }; },
 			toggleCrew: ( handle, options ) => { crewState = 'deployed'; return { status: 'completed', value: { crew: { handle: crew, state: crewState } } }; },
 		},
-		spatial: { roadSpan: () => ( { a: [ - 12, 0 ], b: [ 12, 0 ], width: 24 } ), count: () => null },
+		spatial: { roadSpan: () => ( { a: [ - 12, 0 ], b: [ 12, 0 ], width: 24 } ), roadRoute: ( from, to ) => ( { points: [ from, to ], length: 180 } ),
+			walkable: ( at ) => at, count: () => null },
 		movement: { move: ( actor, at, options ) => { moves.push( { actor, at, options } ); return {}; } },
 		actors: { resolve: () => crew, get: ( handle ) => ( { handle, center: [ - 150, - 300 ], alive: 12 } ) },
 		commands: { execute: ( id, request ) => { commands.push( { id, request } ); return {}; } },
+		resources: { get: () => ( { available: false } ) },
 	};
 	behavior.start( context ); behavior.onEvent( context, { type: 'player.move', actor: speaker } );
 	timers.find( ( timer ) => timer.seconds === 20 ).callback(); await Promise.resolve();

@@ -420,7 +420,7 @@ export interface CommandRequest {
     selection?: readonly ActorHandle[];
     /** Behavior-only gas/water opinion override for source-specific AI policy; maximum absolute delta is 10. */
     opinion?: { delta: number; reason: string };
-    /** Optional kettle radius in meters, from 14 to 100; omitted uses the host's selected-group default. */
+    /** Optional arrest radius (5–100 m) or kettle radius (14–100 m); omitted uses the host's default. */
     radius?: number;
 }
 

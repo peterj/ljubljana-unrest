@@ -5,7 +5,7 @@ export const sdkVersion = 1;
 const STAND: Sdk.Point = [ - 205, - 178 ];
 const LEGS: Sdk.Point[] = [ [ - 191, - 247 ], [ - 233, - 402 ], [ - 278, - 510 ], [ - 300, - 585 ], [ - 296, - 645 ] ];
 const PICKUPS: Sdk.Point[] = [ [ - 318, - 772 ], [ - 84, - 760 ] ];
-const ROUTE = path( [ STAND, [ - 205, - 245 ], [ - 201, - 278 ], [ - 216, - 338 ], [ - 233, - 402 ], [ - 245, - 446 ], [ - 264, - 497 ], [ - 277, - 508 ],
+const ROUTE = path( [ STAND, [ - 191, - 245 ], [ - 201, - 278 ], [ - 216, - 338 ], [ - 233, - 402 ], [ - 245, - 446 ], [ - 264, - 497 ], [ - 277, - 508 ],
 	[ - 289, - 521 ], [ - 294, - 534 ], [ - 298, - 548 ], [ - 301, - 605 ], [ - 302, - 620 ], [ - 299, - 632 ], [ - 295, - 645 ], [ - 294, - 675 ], [ - 297, - 688 ],
 	[ - 307, - 719 ], [ - 310, - 730 ], [ - 316, - 759 ], PICKUPS[ 0 ] ] );
 const EXITS: Sdk.Point[] = [ [ - 330, - 948 ], [ - 60, - 657 ], [ - 75, - 903 ] ];
@@ -22,10 +22,11 @@ const protestCluster = ( ctx ) => {
 
 };
 const timeText = ( seconds ) => `${Math.floor( Math.max( 0, seconds ) / 60 )}:${String( Math.floor( Math.max( 0, seconds ) % 60 ) ).padStart( 2, '0' )}`;
+const windArrow = ( wind ) => [ '→', '↗', '↑', '↖', '←', '↙', '↓', '↘' ][ ( Math.round( Math.atan2( wind[ 1 ], wind[ 0 ] ) / ( Math.PI / 4 ) ) + 8 ) % 8 ];
 
 export default ( { defineScenario, defineBehavior, defineOutcome, landmark, place, policeCommands, protect, protestCommands, scenarioCommand }: typeof Sdk ) => {
 
-	const run: any = { speaker: null, car: null, escaping: false, leg: 0, pickup: 0, movedAt: - 99, threat: 0, heldCar: 0, taken: false, carried: false, carriers: 0, broken: 0 };
+	const run: any = { speaker: null, car: null, escaping: false, position: STAND, speakerState: 'active', capture: null, policeNear: 0, wind: [ 0.3, 0 ], leg: 0, pickup: 0, movedAt: - 99, threat: 0, heldCar: 0, taken: false, carried: false, carriers: 0, broken: 0 };
 	const police = FORCES.flatMap( ( force, index ) => [ ...Array.from( { length: 3 }, ( _, part ) => ( { id: `force-${index}-${part}`, at: [ force.at[ 0 ] + ( part - 1 ) * 10, force.at[ 1 ] ] as Sdk.Point, people: 24 } ) ),
 		{ id: `snatcher-${index}`, at: [ force.at[ 0 ], force.at[ 1 ] + 10 ] as Sdk.Point, people: 14 } ] ).concat( [ { id: 'reserve-1', at: [ - 436, - 41 ], people: 20 }, { id: 'reserve-2', at: [ - 426, - 41 ], people: 20 } ] );
 	const friendly = [ 'speaker', 'stewards', 'listeners', 'antifa-1', 'antifa-2', 'antifa-3', 'medics' ];
@@ -43,19 +44,19 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			routeOperation = ctx.movement.move( speaker.actor, routeDestination, { radius: run.leg < LEGS.length ? 6 : 3 } );
 
 		};
-		const tell = ( ctx, at, radius, label, seconds, action ) => {
+		const tell = ( ctx, at, radius, label, seconds, action, announce = true ) => {
 
 			const id = `rescue-action-${++ pendingId}`;
 			waiting.set( id, { id, at, radius, label, kind: 'bad', countdownTo: ctx.time + seconds } ); ctx.presentation.markers( [ ...waiting.values() ] );
-			ctx.presentation.notice( `Police: ${label} in ${seconds} s`, 'warn', at );
+			if ( announce ) ctx.presentation.notice( `Police: ${label} in ${seconds} s`, 'warn', at );
 			ctx.timeline.after( seconds, () => { waiting.delete( id ); ctx.presentation.markers( [ ...waiting.values() ] ); action(); } );
 
 		};
-		const chase = ( ctx, id, at ) => ctx.commands.execute( 'arrest', { at: [ Math.round( at[ 0 ] / 12 ) * 12, Math.round( at[ 1 ] / 12 ) * 12 ], selection: [ ctx.actors.resolve( id ) ] } );
-		const ahead = ( ctx ) => {
+		const chase = ( ctx, id, at ) => ctx.commands.execute( 'arrest', { at, radius: 14, selection: [ ctx.actors.resolve( id ) ] } );
+		const ahead = ( ctx, lead = 110 ) => {
 
 			const speaker = ctx.protected.get( run.speaker ), progress = ROUTE.project( speaker.position ?? STAND );
-			return ROUTE.at( Math.min( progress + 110, ROUTE.length - 25 ) );
+			return ROUTE.at( Math.min( progress + lead, ROUTE.length - 25 ) );
 
 		};
 		const lunge = ( ctx, mobile, delay ) => {
@@ -88,7 +89,15 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			void operation.settled.then( ( outcome ) => {
 
 				if ( outcome.status !== 'completed' || ctx.signal.aborted ) return;
-				const vehicle = ctx.vehicles.get( outcome.value ), target = task === 'car' ? ctx.vehicles.get( run.car ).position : ahead( ctx );
+				const vehicle = ctx.vehicles.get( outcome.value ); let target;
+				if ( task === 'car' ) target = ctx.vehicles.get( run.car ).position;
+				else {
+
+					const initial = ahead( ctx, 50 ), approach = ctx.spatial.roadRoute( origin, initial );
+					const intercept = ahead( ctx, approach ? 50 + approach.length / 9 * 1.7 : 110 );
+					target = ctx.spatial.walkable( intercept, 20 ) ?? intercept;
+
+				}
 				const driven = ctx.vehicles.drive( vehicle.handle, target, { expectedRevision: vehicle.revision } );
 				if ( driven.status === 'completed' ) mobileCars.push( { handle: vehicle.handle, task, goal: target, goalProgress: ROUTE.project( target ), deployed: false, crew: null, lastMove: ctx.time, chasing: false, pendingLunge: false } );
 
@@ -217,27 +226,33 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			if ( chargeStarted ) return; chargeStarted = true;
 			lastSnatch = ctx.time - 10;
 			const { center } = protestCluster( ctx );
-			for ( const [ index, force ] of FORCES.entries() ) tell( ctx, center, 14, `charge from ${force.name}`, 8, () => {
+			ctx.presentation.notice( 'Police: baton charges from Slovenska, Šubičeva and Prešernov trg in 8 s', 'bad', center );
+			for ( const [ index, force ] of FORCES.entries() ) {
 
-				const gap = distance( force.at, center ) || 1, at = center.map( ( value, axis ) => value + ( force.at[ axis ] - value ) / gap * Math.min( gap, 25 ) );
-				ctx.commands.execute( 'charge', { at: [ at[ 0 ], at[ 1 ] ], selection: Array.from( { length: 3 }, ( _, part ) => ctx.actors.resolve( `force-${index}-${part}` ) ) } );
-				if ( ! run.escaping ) {
+				const delta = [ force.at[ 0 ] - center[ 0 ], force.at[ 1 ] - center[ 1 ] ], length = Math.hypot( ...delta ) || 1;
+				const target = [ center[ 0 ] + delta[ 0 ] / length * Math.min( length, 25 ), center[ 1 ] + delta[ 1 ] / length * Math.min( length, 25 ) ];
+				tell( ctx, target, 14, `charge from ${force.name}`, 8, () => {
 
-					run.escaping = true; phase = 'escape'; move( ctx ); scheduleMobile( ctx );
-					ctx.timeline.after( 14, () => {
+					ctx.commands.execute( 'charge', { at: target, selection: Array.from( { length: 3 }, ( _, part ) => ctx.actors.resolve( `force-${index}-${part}` ) ) } );
+					if ( ! run.escaping ) {
 
-						const crowd = protestCluster( ctx ); if ( crowd.count < 50 ) return;
-						const selection = police.filter( ( squad ) => squad.id.startsWith( 'force-' ) ).map( ( squad ) => ctx.actors.get( ctx.actors.resolve( squad.id ) ) )
-							.filter( ( actor ) => actor?.alive > 5 && ! brokenTargets.has( actor.handle.id ) ).map( ( actor ) => actor.handle );
-						if ( ! selection.length ) return;
-						const radius = Math.max( 20, Math.min( 45, Math.sqrt( crowd.count / 1.6 / Math.PI ) ) );
-						ctx.commands.execute( 'kettle', { at: crowd.center, selection, radius } );
+						run.escaping = true; phase = 'escape'; move( ctx ); scheduleMobile( ctx );
+						ctx.timeline.after( 14, () => {
 
-					} );
+							const crowd = protestCluster( ctx ); if ( crowd.count < 50 ) return;
+							const selection = police.filter( ( squad ) => squad.id.startsWith( 'force-' ) ).map( ( squad ) => ctx.actors.get( ctx.actors.resolve( squad.id ) ) )
+								.filter( ( actor ) => actor?.alive > 5 && ! brokenTargets.has( actor.handle.id ) ).map( ( actor ) => actor.handle );
+							if ( ! selection.length ) return;
+							const radius = Math.max( 20, Math.min( 45, Math.sqrt( crowd.count / 1.6 / Math.PI ) ) );
+							ctx.commands.execute( 'kettle', { at: crowd.center, selection, radius } );
 
-				}
+						} );
 
-			} );
+					}
+
+				}, false );
+
+			}
 
 		};
 		return {
@@ -250,6 +265,10 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			observe( ctx, sample ) {
 
 				const speaker = ctx.protected.get( run.speaker ), car = ctx.vehicles.get( run.car );
+				run.speakerState = speaker.state; run.position = speaker.position ?? run.position;
+				run.capture = speaker.capture;
+				const policeNear = speaker.position ? ctx.spatial.count( { at: speaker.position, radius: 15, faction: 'police' } ) : null;
+				if ( policeNear !== null ) run.policeNear = policeNear;
 				mobileTick( ctx, speaker );
 				assaultTick( ctx, sample );
 				if ( speaker.state === 'down' && speaker.position && speaker.capture?.available && speaker.capture.friendly >= 4 && speaker.capture.hostile < speaker.capture.friendly ) {
@@ -328,13 +347,16 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 					for ( const squad of squads.filter( ( actor ) => actor?.center && actor.alive > 5 ).sort( ( first, second ) => distance( first.center, speaker.position ) - distance( second.center, speaker.position ) ).slice( 0, 2 ) ) ctx.movement.move( squad.handle, speaker.position );
 
 				}
-				if ( ctx.time < 75 || ctx.time - lastSnatch < ( run.escaping ? 25 : 35 ) ) return;
-				const available = police.filter( ( entry ) => entry.id.startsWith( 'snatcher-' ) || entry.id.startsWith( 'reserve-' ) )
-					.map( ( entry ) => ctx.actors.get( ctx.actors.resolve( entry.id ) ) ).filter( ( actor ) => actor?.center && actor.alive > 5 && ! chasing.has( actor.handle.id ) && distance( actor.center, speaker.position ) < 260 )
-					.sort( ( first, second ) => distance( first.center, speaker.position ) - distance( second.center, speaker.position ) );
-				if ( available.length ) { lastSnatch = ctx.time; const id = available[ 0 ].handle.id;
-					tell( ctx, speaker.position, 10, `${id} for the Speaker`, 5, () => { chasing.add( id ); chase( ctx, id, ctx.protected.get( run.speaker ).position ?? speaker.position );
-						ctx.timeline.after( 45, () => { chasing.delete( id ); const at = ctx.protected.get( run.speaker ).position; if ( at ) ctx.movement.move( ctx.actors.resolve( id ), at ); } ); } ); }
+				if ( speaker.state !== 'down' && ctx.time >= 75 && ctx.time - lastSnatch >= ( run.escaping ? 25 : 35 ) ) {
+
+					const available = police.filter( ( entry ) => entry.id.startsWith( 'snatcher-' ) || entry.id.startsWith( 'reserve-' ) )
+						.map( ( entry ) => ctx.actors.get( ctx.actors.resolve( entry.id ) ) ).filter( ( actor ) => actor?.center && actor.alive > 5 && ! chasing.has( actor.handle.id ) && distance( actor.center, speaker.position ) < 260 )
+						.sort( ( first, second ) => distance( first.center, speaker.position ) - distance( second.center, speaker.position ) );
+					if ( available.length ) { lastSnatch = ctx.time; const id = available[ 0 ].handle.id;
+						tell( ctx, speaker.position, 10, `${id} for the Speaker`, 5, () => { chasing.add( id ); chase( ctx, id, ctx.protected.get( run.speaker ).position ?? speaker.position );
+							ctx.timeline.after( 45, () => { chasing.delete( id ); const at = ctx.protected.get( run.speaker ).position; if ( at ) ctx.movement.move( ctx.actors.resolve( id ), at ); } ); } ); }
+
+				}
 				if ( ctx.time - lastGas > 40 && ctx.resources.get( 'gas' ).available ) for ( const id of chasing ) {
 
 					const squad = ctx.actors.get( ctx.actors.resolve( id ) );
@@ -374,7 +396,10 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			scenarioCommand( { id: 'antifa-assault', key: 'a', label: 'Assault', selection: 'crowd', side: 'protest' } ) ],
 		async setup( ctx ) {
 
-			Object.assign( run, { escaping: false, leg: 0, pickup: 0, movedAt: - 99, threat: 0, heldCar: 0, taken: false, carried: false, carriers: 0, broken: 0 } );
+			Object.assign( run, { escaping: false, position: STAND, speakerState: 'active', capture: null, policeNear: 0, leg: 0, pickup: 0, movedAt: - 99, threat: 0, heldCar: 0, taken: false, carried: false, carriers: 0, broken: 0 } );
+			const angle = ctx.random() * Math.PI * 2, speed = 0.3 + ctx.random() * 0.5;
+			run.wind = [ Math.cos( angle ) * speed, Math.sin( angle ) * speed ];
+			await ctx.environment.configure( { wind: run.wind } );
 			ctx.presentation.focus( [ - 215, - 250 ], 0.6 );
 			const crowds: Sdk.CrowdSpawnOptions[] = [ { id: 'speaker', label: 'Speaker', at: STAND, people: 14, groupSize: 14, spread: 2, agitation: [ 0, 0.05 ], resolve: [ 1.5, 2 ], morale: 0.95, speed: [ 1.3, 1.3 ] },
 				{ id: 'stewards', label: 'Stewards', at: STAND, people: 120, groupSize: 40, spread: 10, agitation: [ 0.05, 0.15 ], resolve: [ 1, 1.3 ], morale: 0.85 },
@@ -412,7 +437,28 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			return null;
 
 		} } ) ],
-		phase: ( { time } ) => `${run.escaping ? 'Escape to the car' : 'The Speaker is on the stand'} · ${timeText( 900 - time )} left`,
+		phase: ( { time } ) => {
+
+			const where = [ 'aboard', 'exited' ].includes( run.speakerState ) ? 'SPEAKER IN THE CAR' : run.speakerState === 'down' ? 'SPEAKER DOWN'
+				: ! run.escaping ? 'the Speaker is on the stand' : `Speaker ${Math.round( Math.max( 0, ROUTE.length - ROUTE.project( run.position ) ) )} m from the car`;
+			return `${where} · ${timeText( 900 - time )} left · wind ${windArrow( run.wind )}`;
+
+		},
+		hud: ( { time, metrics } ) => {
+
+			const boarded = [ 'aboard', 'exited' ].includes( run.speakerState ), down = run.speakerState === 'down';
+			const distanceLeft = Math.max( 0, ROUTE.length - ROUTE.project( run.position ) ), captureTime = run.capture?.held ?? 0, captureRequired = run.capture?.required ?? 4;
+			return [
+				{ label: 'Speaker to the rescue car', value: boarded ? 1 : Math.min( 1, ROUTE.project( run.position ) / ROUTE.length ),
+					text: boarded ? 'in the car' : down ? 'DOWN!' : run.escaping ? `${Math.round( distanceLeft )} m` : 'on the stand', state: down ? 'bad' : boarded ? 'done' : 'ok' },
+				{ label: 'Police near the Speaker', value: captureTime > 0 ? captureTime / captureRequired : Math.min( 1, run.policeNear / 12 ),
+					text: captureTime > 0 ? `SEIZED · ${Math.ceil( captureRequired - captureTime )} s` : `${run.policeNear}`,
+					state: captureTime > 0 || run.policeNear > 6 ? 'bad' : run.policeNear > 2 ? 'warn' : 'ok', invert: true },
+				{ label: '★ Away before 10:00', value: Math.min( 1, time / 600 ), text: time < 600 ? timeText( 600 - time ) : 'missed', state: time < 600 ? 'ok' : 'bad', invert: true },
+				{ label: '★ Sympathy ≥ 50', value: metrics.opinion / 100, text: `${Math.round( metrics.opinion )}`, state: metrics.opinion < 50 ? 'bad' : 'ok' },
+			];
+
+		},
 		score: ( { win, time, metrics } ) => ( { stars: Number( win ) + Number( win && time < 600 ) + Number( win && metrics.opinion >= 50 ),
 			lines: [ [ 'Time', timeText( time ) ], [ 'Speaker carried', run.carriers ? `yes (${run.carriers}×)` : 'no' ], [ 'Public sympathy', Math.round( metrics.opinion ) ],
 				[ 'Protesters injured', metrics.counters.injuriesByPolice ], [ 'Treated by medics', metrics.counters.treatedByMedics ], [ 'Arrested', metrics.counters.arrests ],
