@@ -668,13 +668,13 @@ export class ScenarioRuntime {
 
 		const record = this.actors.get( handle.id );
 		if ( record?.handle !== handle ) return;
-		this.commands.claims.get( handle )?.cancel( 'actor removed' );
+		this.commands.cancelActor( handle, 'actor removed' );
 		if ( record.crewHandle ) {
 
 			const crew = this.actors.get( record.crewHandle.id );
 			if ( crew ) {
 
-				this.commands.claims.get( crew.handle )?.cancel( 'vehicle removed' );
+				this.commands.cancelActor( crew.handle, 'vehicle removed' );
 				const crewMovement = this.movement.orders.get( crew.handle.id );
 				if ( crewMovement ) this.movement.remove( crewMovement, 'vehicle removed' );
 				this.identity.releaseActor( crew.handle );

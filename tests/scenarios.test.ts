@@ -1069,12 +1069,13 @@ test( 'Rescue mobile police deploy a road cordon and pursue after the Speaker pa
 			walkable: ( at ) => at, count: () => null },
 		movement: { move: ( actor, at, options ) => { moves.push( { actor, at, options } ); return {}; } },
 		actors: { resolve: () => crew, get: ( handle ) => ( { handle, center: [ - 150, - 300 ], alive: 12 } ) },
-		commands: { execute: ( id, request ) => { commands.push( { id, request } ); return {}; } },
+		commands: { execute: ( id, request ) => { commands.push( { id, request } ); return { id: `operation-${commands.length}`, state: 'applied', settled: Promise.resolve( { status: 'completed' } ), cancel: () => ( { status: 'too-late' } ) }; } },
 		resources: { get: () => ( { available: false } ) },
 	};
 	behavior.start( context ); behavior.onEvent( context, { type: 'player.move', actor: speaker } );
 	timers.find( ( timer ) => timer.seconds === 20 ).callback(); await Promise.resolve();
 	assert.deepEqual( spawned[ 0 ], { id: 'mobile-1', at: [ - 372, - 385 ], type: 'police-patrol', crew: 12, selectable: false } );
+	assert.equal( drives.length, 0 ); timers.find( ( timer ) => timer.seconds === 1.5 ).callback();
 	assert.equal( drives.length, 1 );
 	behavior.observe( context, { sequence: 1, elapsed: 1 } );
 	assert.deepEqual( moves[ 0 ], { actor: crew, at: [ 12, 0 ], options: { line: [ - 12, 0 ], radius: 8 } } );

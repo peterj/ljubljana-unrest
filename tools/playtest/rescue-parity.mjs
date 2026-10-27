@@ -20,12 +20,12 @@ function urlFor( mode ) {
 
 	const url = new URL( base );
 	url.search = '';
+	url.searchParams.set( 'seed', String( seed ) );
 	if ( mode === 'native' ) url.searchParams.set( 'm', 'rescue' );
 	else {
 
 		url.searchParams.set( 'plugin', '/__rescue-parity-plugin.js' );
 		url.searchParams.set( 'm', 'rescue-rules' );
-		url.searchParams.set( 'seed', String( seed ) );
 
 	}
 	return url.href;
@@ -82,15 +82,28 @@ async function launchPage( browser, mode, errors ) {
 		const mission = game.mission; window.__rescueParityEvents = [];
 		if ( mode === 'native' ) {
 
+			const arrest = mission.world.arrest.bind( mission.world );
+			mission.world.arrest = ( groups, x, y, radius, aim, options ) => {
+
+				window.__rescueParityEvents.push( { time: mission.t, type: 'native.arrest', selection: groups.map( ( group ) => group.label ), at: [ x, y ], radius, aim } );
+				return arrest( groups, x, y, radius, aim, options );
+
+			};
 			const event = mission.event.bind( mission );
 			mission.event = ( text, kind, at ) => { window.__rescueParityEvents.push( { time: mission.t, text, kind } ); return event( text, kind, at ); };
 
 		} else {
 
 			const runtime = mission.runtime;
-			runtime.randomState = seed || 0x6d2b79f5;
 			const event = runtime.event.bind( runtime );
 			runtime.event = ( type, payload ) => { window.__rescueParityEvents.push( { time: runtime.time, type, payload } ); return event( type, payload ); };
+			const prepare = runtime.adapter.prepareCommand.bind( runtime.adapter );
+			runtime.adapter.prepareCommand = ( request, selected, signal ) => {
+
+				if ( request.id === 'arrest' ) window.__rescueParityEvents.push( { time: runtime.time, type: 'sdk.arrest', selection: request.selection.map( ( actor ) => actor.id ), at: request.at, radius: request.radius, aim: request.aim } );
+				return prepare( request, selected, signal );
+
+			};
 
 		}
 		document.querySelector( '#bStart' ).click();
@@ -110,7 +123,8 @@ async function snapshot( page, mode ) {
 
 	return await page.evaluate( ( mode ) => {
 
-		const mission = game.mission;
+		const mission = game.mission, flow = game.world.flow;
+		const navigation = { pending: flow.pending.size, queued: flow.queue.length, allocated: flow.slots.filter( Boolean ).length };
 		if ( mode === 'native' ) {
 
 			const speaker = mission.sp, result = mission.result, intel = mission.world.intel;
@@ -126,7 +140,7 @@ async function snapshot( page, mode ) {
 				metrics: { opinion: mission.opinion, counters: { injuriesByPolice: mission.counters.injByPolice, otherInjuries: mission.counters.injOther,
 					officersInjured: mission.counters.injPolice, arrests: mission.counters.arrested, treatedByMedics: mission.counters.treated ?? 0, gasUsed: mission.ai.gasUsed } },
 				objectives: mission.objectives().map( ( row ) => ( { label: row.label, value: row.value, text: row.text, state: row.state, invert: row.invert ?? false } ) ),
-				result, events: window.__rescueParityEvents.splice( 0 ) };
+				result, navigation, events: window.__rescueParityEvents.splice( 0 ) };
 
 		}
 		const runtime = mission.runtime, identity = runtime.identity.entities.get( 'speaker-person' );
@@ -141,7 +155,7 @@ async function snapshot( page, mode ) {
 				&& Math.hypot( person.position[ 0 ] - speaker.position[ 0 ], person.position[ 1 ] - speaker.position[ 1 ] ) < 15 ).length } ) ).filter( ( actor ) => actor.count );
 		return { time: runtime.time, state: runtime.state, phase: runtime.phase(),
 			speaker: { state: speaker.state, position: speaker.position, progress: null },
-			policeNear, policeGroups,
+			policeNear, policeGroups, navigation,
 			car: { position: car.position, moving: car.moving, speed: car.speed }, metrics: runtime.metrics(),
 			objectives: runtime.objectives(), result: runtime.result, events: window.__rescueParityEvents.splice( 0 ) };
 
@@ -183,7 +197,7 @@ async function action( page, mode, id ) {
 			}
 			if ( id === 'assault-at-stand' ) {
 
-				const point = [ - 205, - 178 ];
+				const point = [ - 438, - 44 ];
 				const attackers = mission.antifa.filter( ( group ) => group.alive > 5 ).slice( 0, 2 );
 				if ( ! attackers.length ) return { status: 'no-target' };
 				game.selected = attackers; mission.assault( ...point ); game.selected = [];
@@ -211,16 +225,25 @@ async function action( page, mode, id ) {
 		}
 		if ( id === 'assault-at-stand' ) {
 
-			const point = [ - 205, - 178 ];
-			const target = [ ...runtime.actors.values() ].filter( ( record ) => record.handle.kind === 'squad' )
-				.map( ( record ) => ( { id: record.handle.id, center: runtime.actor( record.handle )?.center } ) )
-				.filter( ( actor ) => actor.center && ( actor.id.startsWith( 'force-' ) || actor.id.startsWith( 'snatcher-' ) || actor.id.startsWith( 'mobile-' ) || actor.id.startsWith( 'reserve-' ) ) )
-				.map( ( actor ) => ( { ...actor, distance: Math.hypot( actor.center[ 0 ] - point[ 0 ], actor.center[ 1 ] - point[ 1 ] ) } ) )
-				.filter( ( actor ) => actor.distance < 30 ).sort( ( first, second ) => first.distance - second.distance )[ 0];
+			const point = [ - 438, - 44 ];
+			let target = null, nearestSquared = 30 ** 2;
+			for ( const record of runtime.actors.values() ) {
+
+				if ( record.handle.kind !== 'squad' ) continue;
+				for ( const person of runtime.identity.members( record.handle ) ) {
+
+					if ( person.faction !== 'police' || person.status !== 'active' ) continue;
+					const squared = ( person.position[ 0 ] - point[ 0 ] ) ** 2 + ( person.position[ 1 ] - point[ 1 ] ) ** 2;
+					if ( squared < nearestSquared ) { nearestSquared = squared; target = record; }
+
+				}
+
+			}
+			const targetCenter = target && runtime.actor( target.handle )?.center;
 			const attackers = [ 'antifa-1', 'antifa-2' ].map( ( id ) => context.actors.resolve( id ) ).filter( ( actor ) => context.actors.get( actor )?.alive > 5 );
-			if ( ! target?.center || ! attackers.length ) return { status: 'no-target' };
+			if ( ! targetCenter || ! attackers.length ) return { status: 'no-target' };
 			const result = await runtime.commands.execute( null, 'antifa-assault', { at: point, selection: attackers }, 'player' ).settled;
-			return { status: result.status, code: result.code ?? null, targetAt: target.center, selection: attackers.length };
+			return { status: result.status, code: result.code ?? null, targetAt: targetCenter, selection: attackers.length };
 
 		}
 		return { status: 'unknown-action' };
@@ -235,6 +258,7 @@ async function runMode( browser, mode ) {
 	try {
 
 		let current = await snapshot( page, mode ), actionIndex = 0;
+		const events = [ ...( current.events ?? [] ) ];
 		checkpoints.push( { at: 0, ...current } );
 		for ( const target of CHECKPOINTS.slice( 1 ).filter( ( time ) => time <= maxSeconds ) ) {
 
@@ -246,6 +270,7 @@ async function runMode( browser, mode ) {
 				await advance( page, mode, step );
 				await wait( 2000 );
 				current = await snapshot( page, mode );
+				events.push( ...( current.events ?? [] ) );
 
 			}
 			while ( ACTIONS[ actionIndex ] && ACTIONS[ actionIndex ].at <= current.time + 0.01 && ! current.result ) {
@@ -253,13 +278,14 @@ async function runMode( browser, mode ) {
 				const planned = ACTIONS[ actionIndex ++ ];
 				actions.push( { plannedAt: planned.at, actualAt: current.time, id: planned.id, result: await action( page, mode, planned.id ) } );
 				current = await snapshot( page, mode );
+				events.push( ...( current.events ?? [] ) );
 
 			}
 			checkpoints.push( { at: target, ...current } );
 			if ( current.result || current.state === 'finished' ) break;
 
 		}
-		return { mode, url: urlFor( mode ), seed, actions, checkpoints, final: current, errors };
+		return { mode, url: urlFor( mode ), seed, actions, checkpoints, events, final: current, errors };
 
 	} finally { await page.close(); }
 

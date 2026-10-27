@@ -100,6 +100,22 @@ test( 'arrest and kettle commands accept their bounded explicit radii only', asy
 
 } );
 
+test( 'same behavior can overlap retargeted arrest preparations without releasing the squad to another owner', async () => {
+
+	const fixture = commandFixture(), owner = { id: 'rescue', state: 'active', operations: new Set() }, other = { id: 'other', state: 'active', operations: new Set() };
+	fixture.runtime.behaviors = { writable() {} };
+	const first = fixture.commands.execute( owner, 'arrest', { at: [ 0, 0 ], aim: [ 0, 0 ], radius: 14, selection: [ fixture.handle ], retarget: true } );
+	await Promise.resolve();
+	const second = fixture.commands.execute( owner, 'arrest', { at: [ 12, 0 ], aim: [ 13, 0 ], radius: 14, selection: [ fixture.handle ], retarget: true } );
+	await Promise.resolve();
+	assert.equal( fixture.pending.length, 2 );
+	assert.equal( ( await fixture.commands.execute( other, 'arrest', { at: [ 12, 0 ], selection: [ fixture.handle ] } ).settled as any ).code, 'CONTROL_BUSY' );
+	fixture.pending[ 0 ].resolve( {} ); fixture.pending[ 1 ].resolve( {} );
+	assert.deepEqual( [ ( await first.settled as any ).status, ( await second.settled as any ).status ], [ 'completed', 'completed' ] );
+	assert.equal( fixture.applied.length, 2 );
+
+} );
+
 test( 'scenario engine prepares kettle navigation with the caller radius', async () => {
 
 	const calls = [], layer = {}, engine = Object.create( ScenarioEngine.prototype );

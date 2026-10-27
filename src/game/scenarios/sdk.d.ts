@@ -424,6 +424,8 @@ export interface CommandRequest {
     opinion?: { delta: number; reason: string };
     /** Optional arrest radius (5–100 m) or kettle radius (14–100 m); omitted uses the host's default. */
     radius?: number;
+    /** Behavior-owned arrest only: retain concurrent preparations while retargeting the same squad, matching native pursuit loops. */
+    retarget?: boolean;
 }
 
 /** Successful application to host simulation, not proof of arrival, an arrest, or an injury. */

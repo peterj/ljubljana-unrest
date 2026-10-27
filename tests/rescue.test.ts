@@ -46,7 +46,7 @@ test( 'Rescue SDK setup matches native crowd, squad, vehicle, bystander, resourc
 		presentation: { focus() {} },
 		spawn: {
 			crowd: ( options ) => { sdkCrowds.push( options ); return { settled: Promise.resolve( { status: 'completed', value: { id: options.id, kind: 'crowd', run: 1 } } ) }; },
-			squad: ( options ) => sdkSquads.push( options ),
+			squad: ( options ) => { sdkSquads.push( options ); return { settled: Promise.resolve( { status: 'completed', value: { id: options.id, kind: 'squad', run: 1 } } ) }; },
 			vehicle: ( options ) => { sdkVehicles.push( options ); return { settled: Promise.resolve( { status: 'completed', value: vehicle } ) }; },
 			bystanders: ( options ) => sdkBystanders.push( options.people ),
 		},
@@ -64,7 +64,8 @@ test( 'Rescue SDK setup matches native crowd, squad, vehicle, bystander, resourc
 	assert.deepEqual( sdkSquads.map( ( squad ) => [ squad.at, squad.people ] ), native.squads.map( ( squad ) => [ squad.at, squad.n ] ) );
 	assert.deepEqual( sdkVehicles.map( ( item ) => item.at ), native.vehicles.map( ( item ) => item.at ) );
 	assert.deepEqual( sdkBystanders, native.bystanderCounts );
-	assert.deepEqual( configured, [ [ 'speaker', { closed: true, parting: true, leaderSuccession: false } ], [ 'antifa-1', { closed: true } ], [ 'antifa-2', { closed: true } ], [ 'antifa-3', { closed: true } ] ] );
+	assert.deepEqual( configured, [ [ 'speaker', { closed: true, parting: true, leaderSuccession: false } ], [ 'antifa-1', { closed: true } ], [ 'antifa-2', { closed: true } ], [ 'antifa-3', { closed: true } ],
+		[ 'snatcher-0', { speed: 1.45 } ], [ 'snatcher-1', { speed: 1.45 } ], [ 'snatcher-2', { speed: 1.45 } ] ] );
 	assert.deepEqual( sdkWind, native.mission.world.wind );
 	assert.equal( native.mission.sp.group.closed, true );
 	assert.equal( native.mission.opinion, definition.opinion.initial );
@@ -86,7 +87,7 @@ test( 'Rescue SDK briefing announcements retain native offsets', () => {
 
 test( 'Rescue charge phase follows native three-second cadence and kettles 14 seconds after landing', () => {
 
-	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create(), timers = [], commands = [];
+	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create(), timers = [], commands = [], moves = [];
 	const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } ), center = [ - 195, - 178 ];
 	const notices = [], markerSnapshots = [];
 	const context = { time: 0, signal: new AbortController().signal,
@@ -96,7 +97,7 @@ test( 'Rescue charge phase follows native three-second cadence and kettles 14 se
 		presentation: { notice: ( ...args ) => notices.push( args ), markers: ( markers ) => markerSnapshots.push( markers ) },
 		commands: { execute: ( id, request ) => { commands.push( { id, request } ); return { settled: Promise.resolve( { status: 'completed' } ) }; } },
 		actors: { resolve: ( id ) => Object.freeze( { id, kind: 'squad', run: 1 } ), get: ( handle ) => ( { handle, alive: 24, center: [ - 205, - 178 ] } ) },
-		movement: { move: () => ( { settled: Promise.resolve( { status: 'completed' } ) } ) },
+		movement: { move: ( actor, at, options ) => { moves.push( { actor, at, options } ); return { settled: Promise.resolve( { status: 'completed' } ) }; } },
 		resources: { get: () => ( { available: false } ) },
 	};
 	behavior.start( context );
@@ -200,7 +201,10 @@ test( 'Rescue mobile interception leads are compensated by native road travel ti
 	behavior.onEvent( context, { type: 'player.move', actor: speaker } );
 	timers.find( ( timer ) => timer.seconds === 20 ).callback(); await Promise.resolve();
 	assert.deepEqual( spawns[ 0 ], { id: 'mobile-1', at: [ - 372, - 385 ], type: 'police-patrol', crew: 12, selectable: false } );
-	assert.deepEqual( roadRoutes[ 0 ][ 1 ], route.at( 50 ) );
+	assert.equal( drives.length, 0 );
+	assert.ok( timers.find( ( timer ) => timer.seconds === 1.5 ) );
+	timers.find( ( timer ) => timer.seconds === 1.5 ).callback();
+	assert.deepEqual( roadRoutes[ 0 ][ 1 ], route.at( 110 ) );
 	assert.deepEqual( drives[ 0 ].at, route.at( 50 + 180 / 9 * 1.7 ) );
 
 } );
@@ -225,7 +229,7 @@ test( 'Rescue pauses new snatches while the Speaker is down and sends nearby squ
 
 test( 'Rescue snatch pursuit shares the native 12 m field and retains the exact Speaker aim', () => {
 
-	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create(), timers = [], commands = [];
+	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create(), timers = [], commands = [], moves = [];
 	const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } ), position = [ - 205.37, - 178.61 ];
 	const context = {
 		time: 69, observation: {}, protected: { get: () => ( { actor: speaker, state: 'active', position } ) },
@@ -233,13 +237,43 @@ test( 'Rescue snatch pursuit shares the native 12 m field and retains the exact 
 		presentation: { notice() {}, markers() {} },
 		actors: { resolve: ( id ) => Object.freeze( { id, kind: 'squad', run: 1 } ), get: ( handle ) => ( { handle, center: [ - 205, - 180 ], alive: 24 } ) },
 		commands: { execute: ( id, request ) => { commands.push( { id, request } ); return { settled: Promise.resolve( { status: 'completed' } ) }; } },
-		movement: { move: () => ( { settled: Promise.resolve( { status: 'completed' } ) } ) },
+		movement: { move: ( actor, at, options ) => { moves.push( { actor, at, options } ); return { settled: Promise.resolve( { status: 'completed' } ) }; } },
 		spatial: { count: () => 0 }, resources: { get: () => ( { available: false } ) },
 	};
+	behavior.onEvent( context, { type: 'player.move', actor: speaker } );
 	behavior.update( context ); context.time = 120; behavior.update( context );
 	const warning = timers.find( ( timer ) => timer.seconds === 5 ); assert.ok( warning ); warning.callback();
 	assert.equal( commands[ 0 ].id, 'arrest' ); assert.deepEqual( commands[ 0 ].request.at, [ - 204, - 180 ] );
 	assert.deepEqual( commands[ 0 ].request.aim, position ); assert.equal( commands[ 0 ].request.radius, 14 );
+	timers.find( ( timer ) => timer.seconds === 45 ).callback();
+	assert.deepEqual( moves.at( - 1 ), { actor: context.actors.resolve( 'snatcher-0' ), at: [ - 204, - 180 ], options: undefined } );
+
+} );
+
+test( 'Rescue snatch pursuit retargets the same squad without cancelling earlier preparation', () => {
+
+	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create(), timers = [], commands = [];
+	const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } ), position = [ - 205.37, - 178.61 ];
+	const context = {
+		time: 69, observation: {}, protected: { get: () => ( { actor: speaker, state: 'active', position } ) },
+		timeline: { after: ( seconds, callback ) => { timers.push( { seconds, callback } ); return { state: 'pending', cancel() {} }; } },
+		presentation: { notice() {}, markers() {} },
+		actors: { resolve: ( id ) => Object.freeze( { id, kind: 'squad', run: 1 } ), get: ( handle ) => ( { handle, center: [ - 205, - 180 ], alive: 24 } ) },
+		commands: { execute: ( id, request ) => {
+			let resolve;
+			const operation = { id: `operation-${commands.length}`, state: 'preparing', settled: new Promise( ( done ) => { resolve = done; } ),
+				cancel( reason ) { this.state = 'cancelled'; resolve( { status: 'cancelled', reason } ); return { status: 'requested' }; } };
+			commands.push( { id, request, operation } ); return operation;
+		} },
+		movement: { move: () => ( { settled: Promise.resolve( { status: 'completed' } ) } ) },
+		spatial: { count: () => 0 }, resources: { get: () => ( { available: false } ) },
+	};
+	behavior.update( context ); context.time = 120; behavior.update( context );
+	timers.find( ( timer ) => timer.seconds === 5 ).callback();
+	context.time = 123; behavior.update( context );
+	assert.equal( commands.length, 2 ); assert.equal( commands[ 0 ].operation.state, 'preparing' );
+	assert.deepEqual( commands[ 1 ].request.at, [ - 204, - 180 ] ); assert.deepEqual( commands[ 1 ].request.aim, position );
+	assert.equal( commands[ 1 ].request.retarget, true );
 
 } );
 

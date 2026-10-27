@@ -105,6 +105,7 @@ export class CommandHost {
 	declare definitions: Map<any, any>;
 	declare active: Set<any>;
 	declare claims: Map<any, any>;
+		declare retargets: Map<any, Set<any>>;
 	declare locks: Map<any, any>;
 	declare initialOwner: any;
 	declare escalation: number;
@@ -115,6 +116,7 @@ export class CommandHost {
 		this.definitions = new Map( runtime.definition.commands.map( ( definition ) => [ definition.id, definition ] ) );
 		this.active = new Set<any>();
 		this.claims = new Map<any, any>();
+			this.retargets = new Map<any, Set<any>>();
 		this.locks = new Map<any, any>();
 		this.initialOwner = Object.freeze( { id: 'scenario-initial-command-locks' } );
 		for ( const id of runtime.definition.initiallyLockedCommands ?? [] ) this.locks.set( id, new Set( [ this.initialOwner ] ) );
@@ -181,11 +183,13 @@ export class CommandHost {
 	execute( owner, id, options, source = 'behavior' ) {
 
 		this.runtime.writable();
-		fields( options, [ 'at', 'selection', 'opinion', 'radius', 'aim' ], 'commands.execute' );
+		fields( options, [ 'at', 'selection', 'opinion', 'radius', 'aim', 'retarget' ], 'commands.execute' );
 		const definition = this.definitions.get( id );
 		check( definition, 'commands.execute.id', `unknown command '${id}'` );
 		check( options.radius === undefined || [ 'arrest', 'kettle' ].includes( id ), 'commands.execute.radius', 'is available only to arrest or kettle' );
 		check( options.aim === undefined || id === 'arrest', 'commands.execute.aim', 'is available only to arrest' );
+		check( options.retarget === undefined || typeof options.retarget === 'boolean', 'commands.execute.retarget', 'must be boolean' );
+		check( options.retarget !== true || ( id === 'arrest' && owner !== null ), 'commands.execute.retarget', 'is available only to behavior-owned arrest orders' );
 		const minimumRadius = id === 'kettle' ? 14 : 5;
 		check( options.radius === undefined || Number.isFinite( options.radius ) && options.radius >= minimumRadius && options.radius <= 100,
 			'commands.execute.radius', `must be from ${minimumRadius} to 100 meters` );
@@ -228,7 +232,8 @@ export class CommandHost {
 			if ( actor?.handle !== handle || ( [ 'water', 'crew' ].includes( id ) || info.selection === 'vehicle' ? ! vehicleSelection : handle.kind !== ( info.selection || ( info.side === 'protest' ? 'crowd' : 'squad' ) ) )
 				|| ! actor.backend || ! ( this.runtime.actor( handle )?.alive > 0 ) ) return reject( 'INVALID_SELECTION' );
 			if ( this.runtime.transport.locked( handle ) ) return reject( 'BOARDING_PENDING' );
-			if ( this.claims.has( handle ) ) return reject( 'CONTROL_BUSY' );
+			const claim = this.claims.get( handle );
+			if ( claim && ! ( options.retarget === true && claim.owner === owner && claim.command === id && this.retargets.has( handle ) ) ) return reject( 'CONTROL_BUSY' );
 			const autonomous = this.runtime.movement.orders.get( handle.id );
 			if ( source !== 'player' && autonomous && autonomous.owner !== owner ) return reject( autonomous.owner === this.runtime.movement.player ? 'PLAYER_CONTROL' : 'CONTROL_BUSY' );
 			actors.push( actor );
@@ -261,22 +266,38 @@ export class CommandHost {
 		let resolve, done = false, timer;
 		const request = Object.freeze( { id, at, selection, source, custom: definition.kind === 'scenario-command', operation: operationId, ...( target ? { target } : {} ),
 			...( aim === undefined ? {} : { aim } ),
+			...( options.retarget === true ? { retarget: true } : {} ),
 			...( options.opinion === undefined ? {} : { opinion: Object.freeze( { delta: options.opinion.delta, reason: options.opinion.reason } ) } ),
 			...( options.radius === undefined ? {} : { radius: options.radius } ) } );
 		const current = () => ! controller.signal.aborted && ( ! owner || [ 'starting', 'active' ].includes( owner.state ) ) && [ 'starting', 'running', 'paused' ].includes( this.runtime.state )
-			&& actors.every( ( actor ) => this.runtime.actors.get( actor.handle.id ) === actor && this.claims.get( actor.handle ) === operation );
+			&& actors.every( ( actor ) => this.runtime.actors.get( actor.handle.id ) === actor
+				&& ( this.claims.get( actor.handle ) === operation || this.retargets.get( actor.handle )?.has( operation ) ) );
 		const settle = ( outcome ) => {
 
 			if ( done ) return;
 			done = true; clearTimeout( timer ); operation.state = outcome.status;
 			if ( reservation ) this.runtime.resources.release( reservation );
-			for ( const actor of actors ) if ( this.claims.get( actor.handle ) === operation ) this.claims.delete( actor.handle );
+			for ( const actor of actors ) {
+
+				const retargets = this.retargets.get( actor.handle );
+				if ( retargets?.delete( operation ) ) {
+					if ( this.claims.get( actor.handle ) === operation ) {
+
+						const next = [ ...retargets ].at( - 1 );
+						if ( next ) this.claims.set( actor.handle, next ); else this.claims.delete( actor.handle );
+
+					}
+					if ( ! retargets.size ) this.retargets.delete( actor.handle );
+
+				} else if ( this.claims.get( actor.handle ) === operation ) this.claims.delete( actor.handle );
+
+			}
 			this.active.delete( operation ); this.runtime.operations.delete( operation ); owner?.operations.delete( operation );
 			resolve( Object.freeze( outcome ) );
 
 		};
 		const operation = {
-			id: operationId, state: 'preparing', signal: controller.signal,
+			id: operationId, command: id, owner, state: 'preparing', signal: controller.signal,
 			settled: new Promise( ( settlePromise ) => { resolve = settlePromise; } ),
 			cancel: ( reason = 'cancelled' ) => {
 
@@ -291,6 +312,12 @@ export class CommandHost {
 
 			const movement = this.runtime.movement.orders.get( actor.handle.id );
 			if ( movement ) this.runtime.movement.remove( movement, 'command accepted', { preserveState: id === 'shield-push' } );
+			if ( options.retarget === true ) {
+
+				const retargets = this.retargets.get( actor.handle ) ?? new Set<any>();
+				retargets.add( operation ); this.retargets.set( actor.handle, retargets );
+
+			}
 			this.claims.set( actor.handle, operation );
 
 		}
@@ -345,7 +372,15 @@ export class CommandHost {
 
 	playerOverride( actors ) {
 
-		for ( const actor of actors ) this.claims.get( actor )?.cancel( 'player movement' );
+		for ( const actor of actors ) this.cancelActor( actor, 'player movement' );
+
+	}
+
+	cancelActor( actor, reason ) {
+
+		const retargets = this.retargets.get( actor );
+		if ( retargets ) for ( const operation of [ ...retargets ] ) operation.cancel( reason );
+		else this.claims.get( actor )?.cancel( reason );
 
 	}
 
