@@ -416,6 +416,8 @@ export interface CustodyEvent {
 export interface CommandRequest {
     /** Declared location alias or finite target coordinates. */
     at: string | Point;
+    /** Exact arrest target when `at` is a coarser shared navigation-field center. */
+    aim?: Point;
     /** Squads or one selected water-cannon/patrol vehicle; gas/reinforce need no selection. */
     selection?: readonly ActorHandle[];
     /** Behavior-only gas/water opinion override for source-specific AI policy; maximum absolute delta is 10. */
@@ -430,6 +432,8 @@ export interface CommandReceipt {
     readonly command: CommandId;
     /** Captured resolved destination. */
     readonly at: Point;
+    /** Exact arrest target when distinct from the captured navigation-field center. */
+    readonly aim?: Point;
     /** Original validated selection, unaffected by later UI selection changes. */
     readonly selection: readonly ActorHandle[];
     /** Actors whose orders were installed; gas has none, since area hits require later observation. */
@@ -1214,6 +1218,8 @@ export interface ScenarioContext {
         setMode(actor: ActorHandle | string, mode: CrowdMode): CrowdMutationResult;
         /** Add bounded agitation/resolve deltas to active observed civilians in the actor; `share` picks a random fraction of them, `leaders` only the group leaders. */
         nudge(actor: ActorHandle | string, options: { agitation?: number; resolve?: number; share?: number; leaders?: boolean }): CrowdMutationResult;
+        /** Raise each member's resolve to at least this zero-to-two floor, subject to atomic edit-capacity checks. */
+        recall(actor: ActorHandle | string, floor: number): CrowdMutationResult;
         /** Set how firmly the actor's groups hold together, from 0 to 1. */
         setMorale(actor: ActorHandle | string, morale: number): CrowdMutationResult;
     };
@@ -1265,7 +1271,7 @@ export interface ScenarioContext {
         /** Merge active civilian actors of one faction; protected/controlled actors reject atomically. */
         merge(actors: readonly (ActorHandle | string)[]): { readonly status: 'completed'; readonly value: ActorHandle } | { readonly status: 'rejected'; readonly code: 'PROTECTED_ACTOR' | 'CONTROL_BUSY' | 'FACTION' | 'TOO_SMALL' };
         /** Validated semantic state changes on a population actor; closed groups do not join or leave through sympathy sway. */
-        configure(actor: ActorHandle | string, options: { speed?: number; masked?: boolean; identified?: boolean; parting?: boolean; home?: boolean; closed?: boolean }): { readonly status: 'completed' };
+        configure(actor: ActorHandle | string, options: { speed?: number; masked?: boolean; identified?: boolean; parting?: boolean; home?: boolean; closed?: boolean; leaderSuccession?: boolean }): { readonly status: 'completed' };
         /** Convert sampled active bystanders into protesters atomically in host membership. */
         recruit(actor: ActorHandle | string): { readonly status: 'completed'; readonly people: number } | { readonly status: 'rejected'; readonly code: string };
         /** Return null before valid sample data exists; invalid/foreign handles throw. */

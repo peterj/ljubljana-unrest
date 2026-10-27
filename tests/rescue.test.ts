@@ -64,7 +64,7 @@ test( 'Rescue SDK setup matches native crowd, squad, vehicle, bystander, resourc
 	assert.deepEqual( sdkSquads.map( ( squad ) => [ squad.at, squad.people ] ), native.squads.map( ( squad ) => [ squad.at, squad.n ] ) );
 	assert.deepEqual( sdkVehicles.map( ( item ) => item.at ), native.vehicles.map( ( item ) => item.at ) );
 	assert.deepEqual( sdkBystanders, native.bystanderCounts );
-	assert.deepEqual( configured, [ [ 'speaker', { closed: true, parting: true } ], [ 'antifa-1', { closed: true } ], [ 'antifa-2', { closed: true } ], [ 'antifa-3', { closed: true } ] ] );
+	assert.deepEqual( configured, [ [ 'speaker', { closed: true, parting: true, leaderSuccession: false } ], [ 'antifa-1', { closed: true } ], [ 'antifa-2', { closed: true } ], [ 'antifa-3', { closed: true } ] ] );
 	assert.deepEqual( sdkWind, native.mission.world.wind );
 	assert.equal( native.mission.sp.group.closed, true );
 	assert.equal( native.mission.opinion, definition.opinion.initial );
@@ -223,7 +223,7 @@ test( 'Rescue pauses new snatches while the Speaker is down and sends nearby squ
 
 } );
 
-test( 'Rescue snatch pursuit targets the exact Speaker point with the native 14 m radius', () => {
+test( 'Rescue snatch pursuit shares the native 12 m field and retains the exact Speaker aim', () => {
 
 	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create(), timers = [], commands = [];
 	const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } ), position = [ - 205.37, - 178.61 ];
@@ -238,7 +238,8 @@ test( 'Rescue snatch pursuit targets the exact Speaker point with the native 14 
 	};
 	behavior.update( context ); context.time = 120; behavior.update( context );
 	const warning = timers.find( ( timer ) => timer.seconds === 5 ); assert.ok( warning ); warning.callback();
-	assert.equal( commands[ 0 ].id, 'arrest' ); assert.deepEqual( commands[ 0 ].request.at, position ); assert.equal( commands[ 0 ].request.radius, 14 );
+	assert.equal( commands[ 0 ].id, 'arrest' ); assert.deepEqual( commands[ 0 ].request.at, [ - 204, - 180 ] );
+	assert.deepEqual( commands[ 0 ].request.aim, position ); assert.equal( commands[ 0 ].request.radius, 14 );
 
 } );
 
@@ -246,11 +247,12 @@ test( 'Rescue phase reports the native stand, route distance, down and in-car st
 
 	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create();
 	const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } );
-	let state = 'active', position: [ number, number ] = [ - 205, - 178 ];
+	let state = 'active', position: [ number, number ] = [ - 205, - 178 ]; const recalls = [];
 	const context = {
 		time: 0, signal: new AbortController().signal,
 		protected: { get: () => ( { actor: speaker, state, position } ) },
 		timeline: { after: () => ( { state: 'pending', cancel() {} } ) }, presentation: { notice() {}, markers() {} },
+		crowd: { recall: ( actor, floor ) => recalls.push( [ actor, floor ] ) },
 		movement: { move: () => ( { settled: Promise.resolve( { status: 'completed' } ) } ) },
 		vehicles: { get: () => ( { position: [ - 318, - 772 ], moving: true, speed: 8 } ), drive() {} },
 		spatial: { count: () => 0, roadRoute: ( from, to ) => ( { points: [ from, to ], length: 100 } ) },
@@ -262,12 +264,15 @@ test( 'Rescue phase reports the native stand, route distance, down and in-car st
 	] );
 	assert.equal( definition.phase( { time: 0 } ), 'the Speaker is on the stand · 15:00 left · wind →' );
 	behavior.start( context ); behavior.onEvent( context, { type: 'player.move', actor: speaker } );
-	position = [ - 233, - 402 ]; behavior.observe( context, { sequence: 1, elapsed: 0.5 } );
+	context.time = 6; position = [ - 233, - 402 ]; behavior.observe( context, { sequence: 1, elapsed: 0.5 } );
 	assert.equal( definition.phase( { time: 10 } ), `Speaker ${Math.round( route.length - route.project( position ) )} m from the car · 14:50 left · wind →` );
-	state = 'down'; behavior.observe( context, { sequence: 2, elapsed: 0.5 } );
+	context.time = 12; behavior.observe( context, { sequence: 2, elapsed: 0.5 } );
+	assert.deepEqual( recalls, [ [ speaker, 0.8 ], [ speaker, 0.8 ] ] );
+	state = 'down'; context.time = 18; behavior.observe( context, { sequence: 3, elapsed: 0.5 } );
 	assert.equal( definition.phase( { time: 20 } ), 'SPEAKER DOWN · 14:40 left · wind →' );
-	state = 'aboard'; behavior.observe( context, { sequence: 3, elapsed: 0.5 } );
+	state = 'aboard'; context.time = 30; behavior.observe( context, { sequence: 4, elapsed: 0.5 } );
 	assert.equal( definition.phase( { time: 30 } ), 'SPEAKER IN THE CAR · 14:30 left · wind →' );
+	assert.equal( recalls.length, 2 );
 
 } );
 

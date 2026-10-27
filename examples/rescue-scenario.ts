@@ -13,6 +13,7 @@ const FORCES: { name: string; at: Sdk.Point }[] = [ { name: 'Slovenska', at: [ -
 const MOBILE_ORIGINS = { Slovenska: [ - 372, - 385 ], Barjanska: [ - 515, - 1300 ] };
 const MOBILE_RESPONSE = [ [ 20, 'Slovenska', 'ahead' ], [ 55, 'Barjanska', 'car' ], [ 95, 'Slovenska', 'ahead' ], [ 140, 'Barjanska', 'ahead' ] ] as const;
 const distance = ( first, second ) => Math.hypot( first[ 0 ] - second[ 0 ], first[ 1 ] - second[ 1 ] );
+const grid12 = ( [ x, y ] ) => [ Math.round( x / 12 ) * 12, Math.round( y / 12 ) * 12 ];
 const protestCluster = ( ctx ) => {
 
 	const people = ( ctx.observation?.people ?? [] ).filter( ( person ) => person.faction === 'protester' && person.status === 'active' && distance( person.position, STAND ) <= 70 );
@@ -32,7 +33,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 	const friendly = [ 'speaker', 'stewards', 'listeners', 'antifa-1', 'antifa-2', 'antifa-3', 'medics' ];
 	const behavior = defineBehavior( { id: 'rescue-escape-and-police', create() {
 
-		let routeOperation, routeDestination, detouring = false, lastPolice = 0, lastSnatch = - 99, lastGas = - 99, lastDown = - 99;
+		let routeOperation, routeDestination, detouring = false, lastPolice = 0, lastSnatch = - 99, lastGas = - 99, lastDown = - 99, lastSpeakerRecall = 0;
 		let exit: Sdk.Point, phase = 'stand', pendingId = 0, mobileSequence = 0, mobileScheduled = false;
 		const chasing = new Set<string>(), waiting = new Map<string, Sdk.MapMarker>();
 		const mobileCars: any[] = [];
@@ -52,7 +53,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			ctx.timeline.after( seconds, () => { waiting.delete( id ); ctx.presentation.markers( [ ...waiting.values() ] ); action(); } );
 
 		};
-		const chase = ( ctx, id, at ) => ctx.commands.execute( 'arrest', { at, radius: 14, selection: [ ctx.actors.resolve( id ) ] } );
+		const chase = ( ctx, id, at ) => ctx.commands.execute( 'arrest', { at: grid12( at ), aim: at, radius: 14, selection: [ ctx.actors.resolve( id ) ] } );
 		const ahead = ( ctx, lead = 110 ) => {
 
 			const speaker = ctx.protected.get( run.speaker ), progress = ROUTE.project( speaker.position ?? STAND );
@@ -166,7 +167,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			for ( const actor of attackers ) {
 
 				assaults.set( actor.id, { actor, target: target.handle, aimT: ctx.time, aiming: null } );
-				ctx.actors.configure( actor, { speed: 1.7 } ); ctx.crowd.setMode( actor, 'push' ); aimAssault( ctx, assaults.get( actor.id ) );
+				ctx.actors.configure( actor, { speed: 1.7 } ); ctx.crowd.setMode( actor, 'push' ); ctx.crowd.recall( actor, 0.6 ); aimAssault( ctx, assaults.get( actor.id ) );
 
 			}
 			ctx.opinion.adjust( - 2, 'AntiFa attack the police' );
@@ -267,6 +268,11 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 				const speaker = ctx.protected.get( run.speaker ), car = ctx.vehicles.get( run.car );
 				run.speakerState = speaker.state; run.position = speaker.position ?? run.position;
 				run.capture = speaker.capture;
+				if ( speaker.actor && [ 'active', 'carried' ].includes( speaker.state ) && ctx.time - lastSpeakerRecall > 5 ) {
+
+					lastSpeakerRecall = ctx.time; ctx.crowd.recall( speaker.actor, 0.8 );
+
+				}
 				const policeNear = speaker.position ? ctx.spatial.count( { at: speaker.position, radius: 15, faction: 'police' } ) : null;
 				if ( policeNear !== null ) run.policeNear = policeNear;
 				mobileTick( ctx, speaker );
@@ -352,6 +358,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 					const available = police.filter( ( entry ) => entry.id.startsWith( 'snatcher-' ) || entry.id.startsWith( 'reserve-' ) )
 						.map( ( entry ) => ctx.actors.get( ctx.actors.resolve( entry.id ) ) ).filter( ( actor ) => actor?.center && actor.alive > 5 && ! chasing.has( actor.handle.id ) && distance( actor.center, speaker.position ) < 260 )
 						.sort( ( first, second ) => distance( first.center, speaker.position ) - distance( second.center, speaker.position ) );
+
 					if ( available.length ) { lastSnatch = ctx.time; const id = available[ 0 ].handle.id;
 						tell( ctx, speaker.position, 10, `${id} for the Speaker`, 5, () => { chasing.add( id ); chase( ctx, id, ctx.protected.get( run.speaker ).position ?? speaker.position );
 							ctx.timeline.after( 45, () => { chasing.delete( id ); const at = ctx.protected.get( run.speaker ).position; if ( at ) ctx.movement.move( ctx.actors.resolve( id ), at ); } ); } ); }
@@ -413,7 +420,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 
 					const outcome = await operation.settled;
 					if ( outcome.status !== 'completed' ) throw new Error( `Rescue actor ${options.id} allocation failed` );
-					ctx.actors.configure( outcome.value, { closed: true, ...( options.id === 'speaker' ? { parting: true } : {} ) } );
+					ctx.actors.configure( outcome.value, { closed: true, ...( options.id === 'speaker' ? { parting: true, leaderSuccession: false } : {} ) } );
 
 				}
 

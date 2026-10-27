@@ -91,8 +91,9 @@ test( 'scenario-owned orders retain validated metadata and spend only on issue r
 test( 'arrest and kettle commands accept their bounded explicit radii only', async () => {
 
 	const fixture = commandFixture();
-	const operation = fixture.commands.execute( null, 'arrest', { at: [ 10, 20 ], selection: [ fixture.handle ], radius: 14 }, 'player' );
-	await Promise.resolve(); assert.equal( fixture.pending[ 0 ].request.radius, 14 );
+	const aim = [ 12.5, 21.25 ];
+	const operation = fixture.commands.execute( null, 'arrest', { at: [ 10, 20 ], aim, selection: [ fixture.handle ], radius: 14 }, 'player' );
+	await Promise.resolve(); assert.equal( fixture.pending[ 0 ].request.radius, 14 ); assert.deepEqual( fixture.pending[ 0 ].request.aim, aim );
 	fixture.pending[ 0 ].resolve( {} ); assert.equal( ( await operation.settled as any ).status, 'completed' );
 	assert.throws( () => fixture.commands.execute( null, 'charge', { at: [ 0, 0 ], selection: [ fixture.handle ], radius: 24 } ), /arrest or kettle/ );
 	assert.throws( () => fixture.commands.execute( null, 'kettle', { at: [ 0, 0 ], selection: [ fixture.handle ], radius: 101 } ), /radius/ );
@@ -108,6 +109,15 @@ test( 'scenario engine prepares kettle navigation with the caller radius', async
 
 } );
 
+test( 'scenario engine prepares arrest navigation at the shared field anchor', async () => {
+
+	const calls = [], engine = Object.create( ScenarioEngine.prototype ), layer = {};
+	engine.mission = { world: { fieldTo: async ( ...args ) => { calls.push( args ); return layer; }, flow: { retain() {} } }, crowd: {}, runtime: { custody: { options: null } } };
+	await engine.prepareCommand( { id: 'arrest', at: [ - 204, - 180 ], aim: [ - 205.37, - 178.61 ], radius: 14 }, [ { members: [ 1 ] } ], new AbortController().signal );
+	assert.deepEqual( calls, [ [ - 204, - 180, 14 ] ] );
+
+} );
+
 test( 'scenario engine applies arrest radius and exact aim to the native world order', () => {
 
 	const calls = [], handle = Object.freeze( { id: 'squad', kind: 'squad', run: 1 } ), group = { members: [ 1 ] };
@@ -116,10 +126,10 @@ test( 'scenario engine applies arrest radius and exact aim to the native world o
 	};
 	const world = { intel: { faction: () => FACTION.POLICE }, endSnatch() {}, arrest: ( ...args ) => { calls.push( args ); return Promise.resolve(); } };
 	engine.mission = { world, runtime, game: null }; engine.snatchTasks = new Map();
-	const at = [ 1.25, 2.5 ];
-	const result = engine.applyCommand( { id: 'arrest', source: 'behavior', selection: [ handle ], at, radius: 14 }, [ group ], { groups: [ group ], layer: {} }, () => true );
+	const at = [ 0, 0 ], aim = [ 1.25, 2.5 ];
+	const result = engine.applyCommand( { id: 'arrest', source: 'behavior', selection: [ handle ], at, aim, radius: 14 }, [ group ], { groups: [ group ], layer: {} }, () => true );
 	assert.equal( result.status, 'completed' );
-	assert.deepEqual( calls[ 0 ].slice( 0, 5 ), [ [ group ], ...at, 14, at ] );
+	assert.deepEqual( calls[ 0 ].slice( 0, 5 ), [ [ group ], ...at, 14, aim ] );
 
 } );
 

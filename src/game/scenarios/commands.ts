@@ -181,10 +181,11 @@ export class CommandHost {
 	execute( owner, id, options, source = 'behavior' ) {
 
 		this.runtime.writable();
-		fields( options, [ 'at', 'selection', 'opinion', 'radius' ], 'commands.execute' );
+		fields( options, [ 'at', 'selection', 'opinion', 'radius', 'aim' ], 'commands.execute' );
 		const definition = this.definitions.get( id );
 		check( definition, 'commands.execute.id', `unknown command '${id}'` );
 		check( options.radius === undefined || [ 'arrest', 'kettle' ].includes( id ), 'commands.execute.radius', 'is available only to arrest or kettle' );
+		check( options.aim === undefined || id === 'arrest', 'commands.execute.aim', 'is available only to arrest' );
 		const minimumRadius = id === 'kettle' ? 14 : 5;
 		check( options.radius === undefined || Number.isFinite( options.radius ) && options.radius >= minimumRadius && options.radius <= 100,
 			'commands.execute.radius', `must be from ${minimumRadius} to 100 meters` );
@@ -198,7 +199,7 @@ export class CommandHost {
 				'commands.execute.opinion.reason', 'must be non-empty text up to 100 characters' );
 
 		}
-		const at = this.runtime.location( options.at ), selected = options.selection ?? [];
+		const at = this.runtime.location( options.at ), aim = options.aim === undefined ? undefined : this.runtime.location( options.aim ), selected = options.selection ?? [];
 		check( Array.isArray( selected ) && Array.from( selected ).every( ( handle ) => handle && typeof handle === 'object' ), 'commands.selection', 'must be a dense array of actor handles' );
 		const selection = Object.freeze( [ ...selected ] ), info = catalog[ id ] ?? definition;
 		const operationId = `${this.runtime.run}:${this.runtime.nextOperation ++}`;
@@ -259,6 +260,7 @@ export class CommandHost {
 		const controller = new AbortController();
 		let resolve, done = false, timer;
 		const request = Object.freeze( { id, at, selection, source, custom: definition.kind === 'scenario-command', operation: operationId, ...( target ? { target } : {} ),
+			...( aim === undefined ? {} : { aim } ),
 			...( options.opinion === undefined ? {} : { opinion: Object.freeze( { delta: options.opinion.delta, reason: options.opinion.reason } ) } ),
 			...( options.radius === undefined ? {} : { radius: options.radius } ) } );
 		const current = () => ! controller.signal.aborted && ( ! owner || [ 'starting', 'active' ].includes( owner.state ) ) && [ 'starting', 'running', 'paused' ].includes( this.runtime.state )
@@ -319,6 +321,7 @@ export class CommandHost {
 				this.escalation = Math.max( this.escalation, info.escalation );
 				const value = Object.freeze( { command: id, at, selection, resource: definition.resource,
 					appliedAt: this.runtime.time, affected: Object.freeze( [ ...( applied.value?.affected ?? selection ) ] ),
+					...( aim === undefined ? {} : { aim } ),
 					...( target ? { target: target.person } : {} ), ...( applied.value ?? {} ) } );
 				this.runtime.adapter.commandApplied?.( request, value );
 				event( 'command.applied', { receipt: value } ); settle( { status: 'completed', value } );
