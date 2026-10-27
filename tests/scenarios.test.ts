@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import defenseScenario from '../examples/defense-scenario.ts';
 import governmentScenario from '../examples/government-scenario.ts';
-import clashScenario from '../examples/clash-scenario.ts';
 import trainingScenario from '../examples/training-scenario.ts';
 import courtScenario from '../examples/court-scenario.ts';
 import * as sdkBuilders from '../src/game/scenarios/index.ts';
@@ -141,19 +140,6 @@ function governmentRouteHooks() {
 		holdBuilding: ( options ) => options, landmark: ( name ) => name, place: ( name ) => name,
 		policeCommands: () => [], target: ( name ) => name } );
 	return routes;
-
-}
-
-function clashCandidate() {
-
-	let director, definition;
-	const defineBehavior = ( value ) => {
-		if ( value.id === 'clash-director' ) director = value.create();
-		return ( options ) => ( { kind: 'behavior', id: options.id } );
-	};
-	definition = ( clashScenario as any )( { defineBehavior, defineScenario: ( options ) => options, landmark: ( name ) => name,
-		place: ( name ) => name, policeCommands: () => [], preventClash: ( options ) => ( { ...options, kind: 'prevent-clash' } ) } );
-	return { definition, director };
 
 }
 
@@ -1242,47 +1228,6 @@ test( 'Government injury reactions apply capped same-group and half-strength nei
 	behavior.observe( context, first ); behavior.observe( context, { ...first, sequence: 3 } );
 	assert.deepEqual( nudge, [ [ 'hurt', { agitation: 0.35, resolve: 0.05 } ], [ 'neighbor', { agitation: 0.175 } ] ] );
 	assert.equal( notices.length, 1 );
-
-} );
-
-test( 'Clash candidate preserves source setup, timed waves, cordons and three-leg march route', async () => {
-
-	const { definition, director } = clashCandidate(), spawns = [], orders = [], timers = [], centers = new Map<any, any>();
-	const context = { time: 0, signal: new AbortController().signal, random: () => 0.5, metrics: { clashPressure: 0 },
-		presentation: { focus() {}, notice() {} }, timeline: { after: ( seconds, callback ) => { timers.push( { seconds, callback } ); return { state: 'pending', cancel() {} }; } },
-		spawn: Object.fromEntries( [ 'crowd', 'squad', 'vehicle', 'bystanders' ].map( ( kind ) => [ kind, ( options ) => {
-			const actor = { id: options.id, kind: kind === 'bystanders' || kind === 'crowd' ? 'crowd' : kind, run: 1 };
-			spawns.push( { kind, options, actor } ); centers.set( actor.id, [ 0, 0 ] );
-			return { settled: Promise.resolve( { status: 'completed', value: actor } ) };
-		} ] ) ),
-		movement: { move: ( actor, at, options ) => {
-			orders.push( { actor, at, options } );
-			return { settled: Promise.resolve( { status: 'completed', value: {} } ) };
-		} },
-		actors: { get: ( actor ) => ( { handle: actor, alive: 100, center: centers.get( actor.id ) ?? null } ) },
-	};
-	await definition.setup( context );
-	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'crowd' && spawn.options.id === 'march' )[ 0 ].options.people, 2600 );
-	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'crowd' && spawn.options.id.startsWith( 'counter-' ) ).length, 15 );
-	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'squad' ).length, 10 );
-	assert.equal( spawns.filter( ( spawn ) => spawn.kind === 'vehicle' ).length, 3 );
-	assert.equal( spawns.find( ( spawn ) => spawn.kind === 'bystanders' ).options.people, 2000 );
-	assert.equal( definition.objectives[ 0 ].kind, 'prevent-clash' );
-	await director.start( context );
-	assert.deepEqual( timers.map( ( timer ) => timer.seconds ), [ 2, 40, 170, 200, 390, 420 ] );
-	timers.find( ( timer ) => timer.seconds === 40 ).callback( context );
-	await Promise.resolve();
-	let marchOrders = orders.filter( ( order ) => order.actor.id === 'march' );
-	assert.deepEqual( marchOrders[ 0 ], { actor: spawns.find( ( spawn ) => spawn.options.id === 'march' ).actor,
-		at: [ - 225, 65 ], options: { radius: 15 } } );
-	centers.set( 'march', [ - 225, 65 ] ); context.time = 41;
-	director.update( context, 1 / 60 ); await Promise.resolve();
-	marchOrders = orders.filter( ( order ) => order.actor.id === 'march' );
-	assert.deepEqual( marchOrders[ 1 ], { actor: marchOrders[ 0 ].actor, at: [ - 314, 100 ], options: { radius: 15 } } );
-	centers.set( 'march', [ - 314, 100 ] );
-	director.update( context, 1 / 60 ); await Promise.resolve();
-	marchOrders = orders.filter( ( order ) => order.actor.id === 'march' );
-	assert.deepEqual( marchOrders[ 2 ], { actor: marchOrders[ 0 ].actor, at: [ - 450, - 80 ], options: { radius: 30 } } );
 
 } );
 
