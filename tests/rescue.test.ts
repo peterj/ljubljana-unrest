@@ -123,7 +123,7 @@ test( 'Rescue charge phase follows native three-second cadence and kettles 14 se
 	const kettleTimer = timers.filter( ( timer ) => timer.seconds === 14 ).at( - 1 );
 	assert.ok( kettleTimer ); kettleTimer.callback();
 	const kettle = commands.find( ( command ) => command.id === 'kettle' );
-	assert.deepEqual( kettle.request.at, center ); assert.equal( kettle.request.radius, Math.sqrt( 2500 / 1.6 / Math.PI ) );
+	assert.deepEqual( kettle.request.at, center ); assert.equal( kettle.request.radius, Math.sqrt( 2500 / 1.6 / Math.PI ) ); assert.equal( kettle.request.tighten, 0.8 );
 	context.time = 77; behavior.update( context ); assert.equal( timers.filter( ( timer ) => timer.seconds === 5 ).length, 0 );
 	context.time = 96; behavior.update( context ); assert.equal( timers.filter( ( timer ) => timer.seconds === 5 ).length, 1 );
 
@@ -276,6 +276,40 @@ test( 'Rescue snatch pursuit retargets the same squad without cancelling earlier
 	assert.equal( commands[ 1 ].request.retarget, true );
 
 } );
+
+test( 'Rescue recovery rejoins the carrier to the Speaker actor at native speed', async () => {
+
+	const definition = ( rescueScenario as any )( sdk ), behavior = definition.behaviors[ 0 ].create();
+		const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } ), protectedHandle = Object.freeze( { id: 'speaker-person', kind: 'protected-person', run: 1 } );
+		const carrier = Object.freeze( { id: 'carrier', kind: 'person', run: 1 } );
+		await definition.setup( {
+			random: () => 0.5, environment: { configure: async () => {} }, presentation: { focus() {} },
+			spawn: {
+				crowd: ( options ) => { const actor = Object.freeze( { id: options.id, kind: 'crowd', run: 1 } ); return { settled: Promise.resolve( { status: 'completed', value: actor } ) }; },
+				squad: ( options ) => { const actor = Object.freeze( { id: options.id, kind: 'squad', run: 1 } ); return { settled: Promise.resolve( { status: 'completed', value: actor } ) }; },
+				vehicle: () => ( { settled: Promise.resolve( { status: 'completed', value: Object.freeze( { id: 'rescue-car', kind: 'vehicle', run: 1 } ) } ) } ),
+				bystanders() {},
+			},
+			actors: { configure: () => ( { status: 'completed' } ) }, protected: { create: () => protectedHandle },
+		} );
+		let transfer;
+		const position = [ - 205, - 178 ];
+		const context = { time: 120, signal: new AbortController().signal,
+			protected: {
+				get: () => ( { handle: protectedHandle, actor: speaker, state: 'down', position, revision: 4, capture: { available: true, friendly: 5, hostile: 2 } } ),
+				transfer: ( handle, options ) => { transfer = { handle, options }; return { status: 'completed' }; },
+			},
+			vehicles: { get: () => ( { position: [ - 318, - 772 ], moving: true, speed: 8 } ) },
+			spatial: { count: () => 0 }, resources: { get: () => ( { available: false } ) },
+			crowd: { recall() {} }, timeline: { after: () => ( { state: 'pending', cancel() {} } ) },
+			presentation: { notice() {}, markers() {} },
+		};
+		behavior.observe( context, { sequence: 10, elapsed: 0.5, people: [ { handle: carrier, actor: { id: 'stewards' }, status: 'active', position: [ - 204, - 177 ] } ] } );
+		assert.equal( transfer.handle, protectedHandle );
+		assert.equal( transfer.options.expectedRevision, 4 ); assert.equal( transfer.options.expectedSample, 10 );
+		assert.equal( transfer.options.promote, true ); assert.deepEqual( transfer.options.joinGroup, { speed: 0.85 } );
+
+	} );
 
 test( 'Rescue phase reports the native stand, route distance, down and in-car states', () => {
 

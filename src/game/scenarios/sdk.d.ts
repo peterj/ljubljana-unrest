@@ -426,6 +426,8 @@ export interface CommandRequest {
     radius?: number;
     /** Behavior-owned arrest only: retain concurrent preparations while retargeting the same squad, matching native pursuit loops. */
     retarget?: boolean;
+    /** Optional kettle encirclement tightening target from zero to one; omitted retains the native shared default. */
+    tighten?: number;
 }
 
 /** Successful application to host simulation, not proof of arrival, an arrest, or an injury. */
@@ -436,6 +438,8 @@ export interface CommandReceipt {
     readonly at: Point;
     /** Exact arrest target when distinct from the captured navigation-field center. */
     readonly aim?: Point;
+    /** Requested kettle tightening target when supplied. */
+    readonly tighten?: number;
     /** Original validated selection, unaffected by later UI selection changes. */
     readonly selection: readonly ActorHandle[];
     /** Actors whose orders were installed; gas has none, since area hits require later observation. */
@@ -1017,6 +1021,8 @@ export interface ProtectionOptions {
     advantage?: number;
     /** Nearby active friends required for recovery; defaults to 4. */
     recoveryMinimum?: number;
+    /** Optional native-style standing pressure rate; downed capture always advances at 1x. */
+    captureRate?: { perHostile?: number; maximum?: number; shieldMultiplier?: number };
 }
 
 /** Capture progress excludes the subject/current carrier and counts active observed people only. */
@@ -1063,7 +1069,7 @@ export interface ProtectedRevision {
     expectedSample: number;
 }
 
-/** A handoff moves the object between bearers, not people between simulation groups. */
+/** A handoff changes the bearer relationship; downed protected persons may explicitly rejoin the original actor group. */
 export interface ProtectedTransfer extends ProtectedRevision {
     /** Nearby active person to become the new bearer. */
     carrier: PersonHandle;
@@ -1071,6 +1077,8 @@ export interface ProtectedTransfer extends ProtectedRevision {
     promote?: boolean;
     /** Maximum distance from the object's known position; default 12 meters, maximum 100. */
     radius?: number;
+    /** For a downed protected person, move the bearer into the original subject's actor and set that group's speed. */
+    joinGroup?: { speed: number };
 }
 
 /**

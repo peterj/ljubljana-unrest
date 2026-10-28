@@ -66,7 +66,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 		};
 		const lunge = ( ctx, mobile, delay ) => {
 
-			if ( mobile.chasing || mobile.pendingLunge || ! mobile.crew ) return;
+			if ( mobile.chasing || mobile.pendingLunge || mobile.snatchPending || ! mobile.crew ) return;
 			const go = () => {
 
 				mobile.pendingLunge = false;
@@ -107,7 +107,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 
 					}
 					const driven = ctx.vehicles.drive( vehicle.handle, target, { expectedRevision: vehicle.revision } );
-					if ( driven.status === 'completed' ) mobileCars.push( { handle: vehicle.handle, task, goal: target, goalProgress: ROUTE.project( target ), deployed: false, crew: null, lastMove: ctx.time, chasing: false, pendingLunge: false } );
+					if ( driven.status === 'completed' ) mobileCars.push( { handle: vehicle.handle, task, goal: target, goalProgress: ROUTE.project( target ), deployed: false, crew: null, lastMove: ctx.time, chasing: false, pendingLunge: false, snatchPending: false } );
 
 				} );
 
@@ -254,7 +254,7 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 								.filter( ( actor ) => actor?.alive > 5 && ! brokenTargets.has( actor.handle.id ) ).map( ( actor ) => actor.handle );
 							if ( ! selection.length ) return;
 							const radius = Math.max( 20, Math.min( 45, Math.sqrt( crowd.count / 1.6 / Math.PI ) ) );
-							ctx.commands.execute( 'kettle', { at: crowd.center, selection, radius } );
+							ctx.commands.execute( 'kettle', { at: crowd.center, selection, radius, tighten: 0.8 } );
 
 						} );
 
@@ -290,7 +290,8 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 
 					const carrier = sample.people.filter( ( person ) => friendly.includes( person.actor.id ) && person.actor.id !== 'medics' && person.status === 'active' && distance( person.position, speaker.position ) < 8 )
 						.sort( ( first, second ) => distance( first.position, speaker.position ) - distance( second.position, speaker.position ) )[ 0 ];
-					if ( carrier && ctx.protected.transfer( run.speaker, { carrier: carrier.handle, expectedRevision: speaker.revision, expectedSample: sample.sequence, promote: true, radius: 8 } ).status === 'completed' ) {
+					if ( carrier && ctx.protected.transfer( run.speaker, { carrier: carrier.handle, expectedRevision: speaker.revision, expectedSample: sample.sequence,
+						promote: true, radius: 8, joinGroup: { speed: 0.85 } } ).status === 'completed' ) {
 
 						run.carried = true; run.carriers ++; if ( run.escaping ) move( ctx );
 
@@ -365,15 +366,35 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 				}
 				if ( speaker.state !== 'down' && ctx.time >= 75 && ctx.time - lastSnatch >= ( run.escaping ? 25 : 35 ) ) {
 
-					const available = police.filter( ( entry ) => entry.id.startsWith( 'snatcher-' ) || entry.id.startsWith( 'reserve-' ) )
-						.map( ( entry ) => ctx.actors.get( ctx.actors.resolve( entry.id ) ) ).filter( ( actor ) => actor?.center && actor.alive > 5 && ! chasing.has( actor.handle.id ) && distance( actor.center, speaker.position ) < 260 )
-						.sort( ( first, second ) => distance( first.center, speaker.position ) - distance( second.center, speaker.position ) );
+						const available = [
+							...police.filter( ( entry ) => entry.id.startsWith( 'snatcher-' ) || entry.id.startsWith( 'reserve-' ) )
+								.map( ( entry ) => ( { actor: ctx.actors.get( ctx.actors.resolve( entry.id ) ), radius: 260, mobile: null } ) ),
+							...mobileCars.filter( ( mobile ) => mobile.deployed && mobile.crew && ! mobile.chasing && ! mobile.pendingLunge && ! mobile.snatchPending )
+								.map( ( mobile ) => ( { actor: ctx.actors.get( mobile.crew ), radius: 60, mobile } ) ),
+						].filter( ( entry ) => entry.actor?.center && entry.actor.alive > 5 && ! chasing.has( entry.actor.handle.id ) )
+							.map( ( entry ) => ( { ...entry, distance: distance( entry.actor.center, speaker.position ) } ) )
+							.filter( ( entry ) => entry.distance < entry.radius )
+							.sort( ( first, second ) => first.distance - second.distance );
 
-					if ( available.length ) { lastSnatch = ctx.time; const id = available[ 0 ].handle.id;
-						tell( ctx, speaker.position, 10, `${id} for the Speaker`, 5, () => { chasing.add( id ); chase( ctx, id, ctx.protected.get( run.speaker ).position ?? speaker.position );
-							ctx.timeline.after( 45, () => { chasing.delete( id ); const speaker = ctx.protected.get( run.speaker );
-								const at = run.escaping && speaker.state !== 'aboard' && speaker.position ? grid12( speaker.position ) : speaker.position;
-								if ( at ) ctx.movement.move( ctx.actors.resolve( id ), at ); } ); } ); }
+						if ( available.length ) {
+							lastSnatch = ctx.time; const { actor, mobile } = available[ 0 ], id = actor.handle.id;
+							if ( mobile ) mobile.snatchPending = true;
+							tell( ctx, speaker.position, 10, `${id} for the Speaker`, 5, () => {
+
+								if ( mobile ) { mobile.snatchPending = false; mobile.chasing = true; } else chasing.add( id );
+								chase( ctx, id, ctx.protected.get( run.speaker ).position ?? speaker.position );
+								ctx.timeline.after( 45, () => {
+
+									if ( mobile ) mobile.chasing = false; else chasing.delete( id );
+									const current = ctx.protected.get( run.speaker );
+									const at = run.escaping && current.state !== 'aboard' && current.position ? grid12( current.position )
+										: mobile ? ctx.actors.get( mobile.crew )?.center : police.find( ( entry ) => entry.id === id )?.at;
+									if ( at ) ctx.movement.move( ctx.actors.resolve( id ), at );
+
+								} );
+
+							} );
+						}
 
 				}
 				if ( ctx.time - lastGas > 40 && ctx.resources.get( 'gas' ).available ) for ( const id of chasing ) {
@@ -452,7 +473,8 @@ export default ( { defineScenario, defineBehavior, defineOutcome, landmark, plac
 			const car = await ctx.spawn.vehicle( { id: 'rescue-car', label: 'Rescue car', at: PICKUPS[ 0 ], capacity: 2, selectable: false } ).settled;
 			if ( car.status !== 'completed' ) throw new Error( 'Rescue car allocation failed' ); run.car = car.value;
 			run.speaker = ctx.protected.create( { id: 'speaker-person', kind: 'person', label: 'Speaker', carrier: 'speaker',
-				protection: { friendly, hostile: police.map( ( squad ) => squad.id ), radius: 2.5, downRadius: 8, seconds: 4, downSeconds: 8, minimum: 2, downMinimum: 4, advantage: 2, recoveryMinimum: 4 } } );
+				protection: { friendly, hostile: police.map( ( squad ) => squad.id ), radius: 2.5, downRadius: 8, seconds: 4, downSeconds: 8, minimum: 2, downMinimum: 4,
+					advantage: 2, recoveryMinimum: 4, captureRate: { perHostile: 0.5, maximum: 2, shieldMultiplier: 0.5 } } } );
 			ctx.spawn.bystanders( { id: 'onlookers', people: 800, destinations: [ 'preseren', 'square', 'metelkova', 'railway', 'tivoli', 'mestni', 'dragon' ] } );
 
 		}, behaviors: [ behavior( { id: 'rescue' } ) ],

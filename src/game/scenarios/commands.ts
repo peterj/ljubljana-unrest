@@ -183,13 +183,16 @@ export class CommandHost {
 	execute( owner, id, options, source = 'behavior' ) {
 
 		this.runtime.writable();
-		fields( options, [ 'at', 'selection', 'opinion', 'radius', 'aim', 'retarget' ], 'commands.execute' );
+		fields( options, [ 'at', 'selection', 'opinion', 'radius', 'aim', 'retarget', 'tighten' ], 'commands.execute' );
 		const definition = this.definitions.get( id );
 		check( definition, 'commands.execute.id', `unknown command '${id}'` );
 		check( options.radius === undefined || [ 'arrest', 'kettle' ].includes( id ), 'commands.execute.radius', 'is available only to arrest or kettle' );
 		check( options.aim === undefined || id === 'arrest', 'commands.execute.aim', 'is available only to arrest' );
 		check( options.retarget === undefined || typeof options.retarget === 'boolean', 'commands.execute.retarget', 'must be boolean' );
 		check( options.retarget !== true || ( id === 'arrest' && owner !== null ), 'commands.execute.retarget', 'is available only to behavior-owned arrest orders' );
+		check( options.tighten === undefined || id === 'kettle', 'commands.execute.tighten', 'is available only to kettle' );
+		check( options.tighten === undefined || Number.isFinite( options.tighten ) && options.tighten >= 0 && options.tighten <= 1,
+			'commands.execute.tighten', 'must be between zero and one' );
 		const minimumRadius = id === 'kettle' ? 14 : 5;
 		check( options.radius === undefined || Number.isFinite( options.radius ) && options.radius >= minimumRadius && options.radius <= 100,
 			'commands.execute.radius', `must be from ${minimumRadius} to 100 meters` );
@@ -267,6 +270,7 @@ export class CommandHost {
 		const request = Object.freeze( { id, at, selection, source, custom: definition.kind === 'scenario-command', operation: operationId, ...( target ? { target } : {} ),
 			...( aim === undefined ? {} : { aim } ),
 			...( options.retarget === true ? { retarget: true } : {} ),
+			...( options.tighten === undefined ? {} : { tighten: options.tighten } ),
 			...( options.opinion === undefined ? {} : { opinion: Object.freeze( { delta: options.opinion.delta, reason: options.opinion.reason } ) } ),
 			...( options.radius === undefined ? {} : { radius: options.radius } ) } );
 		const current = () => ! controller.signal.aborted && ( ! owner || [ 'starting', 'active' ].includes( owner.state ) ) && [ 'starting', 'running', 'paused' ].includes( this.runtime.state )
@@ -349,6 +353,7 @@ export class CommandHost {
 				const value = Object.freeze( { command: id, at, selection, resource: definition.resource,
 					appliedAt: this.runtime.time, affected: Object.freeze( [ ...( applied.value?.affected ?? selection ) ] ),
 					...( aim === undefined ? {} : { aim } ),
+					...( options.tighten === undefined ? {} : { tighten: options.tighten } ),
 					...( target ? { target: target.person } : {} ), ...( applied.value ?? {} ) } );
 				this.runtime.adapter.commandApplied?.( request, value );
 				event( 'command.applied', { receipt: value } ); settle( { status: 'completed', value } );

@@ -468,6 +468,12 @@ export class ScenarioEngine {
 		return { alive, center: alive ? [ sumX / alive, sumY / alive ] : null };
 
 	}
+	protectedShielded( handle ) {
+
+		const record = this.mission.runtime?.actors.get( handle?.id );
+		return record?.handle === handle && Array.isArray( record.backend ) && record.backend.some( ( group ) => group.mode === MODE.SHIELD );
+
+	}
 
 	async prepareMove( groups, request, signal ) {
 
@@ -950,7 +956,8 @@ export class ScenarioEngine {
 		else if ( request.id === 'arrest' && prepared.custody ) runtime.custody.start( groups, request.at );
 		else if ( request.id === 'arrest' ) work = world.arrest( groups, ...request.at, request.radius ?? 5,
 			request.aim ?? ( request.radius === undefined ? null : request.at ), { layer: prepared.layer, valid: current } );
-		else if ( request.id === 'kettle' ) work = world.kettle( groups, ...request.at, prepared.radius, world.intel.pos, { layer: prepared.layer, valid: current } );
+		else if ( request.id === 'kettle' ) work = world.kettle( groups, ...request.at, prepared.radius, world.intel.pos,
+			{ layer: prepared.layer, valid: current, tighten: request.tighten } );
 		else if ( request.id === 'reinforce' ) work = world.moveSquads( groups, ...request.at, { layer: prepared.layer, valid: current } );
 		if ( work ) work.catch( ( error ) => runtime.fail( error ) );
 		prepared.applied = true;

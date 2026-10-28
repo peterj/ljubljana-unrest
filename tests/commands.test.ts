@@ -100,6 +100,17 @@ test( 'arrest and kettle commands accept their bounded explicit radii only', asy
 
 } );
 
+test( 'kettle command accepts a bounded tightening override and rejects it for other orders', async () => {
+
+	const fixture = commandFixture();
+	const kettle = fixture.commands.execute( null, 'kettle', { at: [ 10, 20 ], selection: [ fixture.handle ], radius: 24, tighten: 0.8 }, 'player' );
+	await Promise.resolve(); assert.equal( fixture.pending[ 0 ].request.tighten, 0.8 );
+	fixture.pending[ 0 ].resolve( {} ); assert.equal( ( await kettle.settled as any ).status, 'completed' );
+	assert.throws( () => fixture.commands.execute( null, 'charge', { at: [ 0, 0 ], selection: [ fixture.handle ], tighten: 0.8 } ), /kettle/ );
+	assert.throws( () => fixture.commands.execute( null, 'kettle', { at: [ 0, 0 ], selection: [ fixture.handle ], tighten: 1.1 } ), /tighten/ );
+
+} );
+
 test( 'same behavior can overlap retargeted arrest preparations without releasing the squad to another owner', async () => {
 
 	const fixture = commandFixture(), owner = { id: 'rescue', state: 'active', operations: new Set() }, other = { id: 'other', state: 'active', operations: new Set() };
@@ -146,6 +157,19 @@ test( 'scenario engine applies arrest radius and exact aim to the native world o
 	const result = engine.applyCommand( { id: 'arrest', source: 'behavior', selection: [ handle ], at, aim, radius: 14 }, [ group ], { groups: [ group ], layer: {} }, () => true );
 	assert.equal( result.status, 'completed' );
 	assert.deepEqual( calls[ 0 ].slice( 0, 5 ), [ [ group ], ...at, 14, aim ] );
+
+} );
+
+test( 'scenario engine forwards kettle tightening to the native world order', () => {
+
+	const calls = [], handle = Object.freeze( { id: 'squad', kind: 'squad', run: 1 } ), group = { members: [ 1 ] }, layer = {};
+	const runtime = { actors: new Map( [ [ handle.id, { handle, backend: [ group ] } ] ] ), event() {}, removeActor() {} };
+	const world = { intel: { pos: new Float32Array( 4 ), faction: () => FACTION.POLICE }, endSnatch() {}, kettle: ( ...args ) => { calls.push( args ); return Promise.resolve(); } };
+	const engine = Object.create( ScenarioEngine.prototype ); engine.mission = { world, runtime, game: null }; engine.snatchTasks = new Map();
+	const result = engine.applyCommand( { id: 'kettle', source: 'behavior', selection: [ handle ], at: [ 10, 20 ], radius: 24, tighten: 0.8 },
+		[ group ], { groups: [ group ], layer, radius: 24 }, () => true );
+	assert.equal( result.status, 'completed' ); assert.equal( calls[ 0 ][ 4 ], world.intel.pos );
+	assert.deepEqual( calls[ 0 ][ 5 ], { layer, valid: calls[ 0 ][ 5 ].valid, tighten: 0.8 } );
 
 } );
 

@@ -1047,6 +1047,44 @@ test( 'Rescue mobile police response is scheduled relative to the Speaker escape
 
 } );
 
+test( 'Rescue Snatch considers a deployed mobile crew at 40 m, not only its 25 m lunge radius', async () => {
+
+	const definition = ( rescueScenario as any )( sdkBuilders ), behavior = definition.behaviors[ 0 ].create();
+	const speaker = Object.freeze( { id: 'speaker', kind: 'crowd', run: 1 } ), vehicle = Object.freeze( { id: 'mobile-1', kind: 'vehicle', run: 1 } );
+	const crew = Object.freeze( { id: 'mobile-1-crew', kind: 'squad', run: 1 } ), timers = [], notices = [], commands = [];
+	let moving = false, crewState = 'aboard', crewRevision = 0;
+	const position: [ number, number ] = [ - 205, - 178 ];
+	const context = {
+		time: 0, signal: new AbortController().signal, observation: { people: [] },
+		protected: { get: () => ( { actor: speaker, state: 'active', position } ) },
+		timeline: { after: ( seconds, callback ) => { timers.push( { seconds, callback } ); return { state: 'pending', cancel() {} }; } },
+		presentation: { notice: ( text ) => notices.push( text ), markers() {} },
+		spawn: { vehicle: () => ( { settled: Promise.resolve( { status: 'completed', value: vehicle } ) } ) },
+		vehicles: {
+			get: () => ( { handle: vehicle, position: [ - 372, - 385 ], moving, speed: moving ? 9 : 0, revision: crewRevision,
+				crew: { handle: crew, state: crewState, people: 12, aboard: crewState === 'aboard' ? 12 : 0 } } ),
+			drive: () => { moving = true; crewRevision ++; return { status: 'completed' }; },
+			toggleCrew: () => { crewState = 'deployed'; crewRevision ++; return { status: 'completed', value: { crew: { handle: crew } } }; },
+		},
+		spatial: { roadRoute: ( from, to ) => ( { points: [ from, to ], length: 180 } ), walkable: ( at ) => at, roadSpan: () => ( { a: [ - 12, 0 ], b: [ 12, 0 ], width: 24 } ), count: () => 0 },
+		movement: { move: () => ( { settled: Promise.resolve( { status: 'completed' } ) } ) },
+		actors: { resolve: ( id ) => Object.freeze( { id, kind: 'squad', run: 1 } ), get: ( handle ) => ( { handle,
+			center: handle.id === crew.id ? [ - 165, - 178 ] : [ - 900, - 900 ], alive: 12 } ) },
+		commands: { execute: ( id, request ) => { commands.push( { id, request } ); return { settled: Promise.resolve( { status: 'completed' } ) }; } },
+		resources: { get: () => ( { available: false } ) },
+	};
+	behavior.start( context ); behavior.onEvent( context, { type: 'player.move', actor: speaker } );
+	timers.find( ( timer ) => timer.seconds === 20 ).callback(); await Promise.resolve();
+	timers.find( ( timer ) => timer.seconds === 1.5 ).callback(); moving = false; crewRevision ++;
+	behavior.observe( context, { sequence: 1, elapsed: 0.5 } );
+	context.time = 75; behavior.update( context ); context.time = 90; behavior.update( context );
+	assert.ok( notices.some( ( text ) => text.includes( 'mobile-1-crew for the Speaker' ) ) );
+	timers.filter( ( timer ) => timer.seconds === 5 ).at( - 1 ).callback();
+	assert.equal( commands[ 0 ].id, 'arrest' ); assert.equal( commands[ 0 ].request.selection[ 0 ].id, crew.id );
+	assert.equal( commands[ 0 ].request.retarget, true );
+
+} );
+
 test( 'Rescue mobile police deploy a road cordon and pursue after the Speaker passes it', async () => {
 
 	const definition = ( rescueScenario as any )( sdkBuilders ), behavior = definition.behaviors[ 0 ].create();
